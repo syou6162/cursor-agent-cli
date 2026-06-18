@@ -69,7 +69,17 @@ func (r *Root) Run(args []string) int {
 	}
 }
 
-func (r *Root) runModels(_ []string) int {
+func (r *Root) runModels(args []string) int {
+	fs := flag.NewFlagSet("models", flag.ContinueOnError)
+	fs.SetOutput(r.stderr)
+	fs.Usage = modelsUsage(r.stderr)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return ExitSuccess
+		}
+		return r.fail(ExitUsage, err)
+	}
+
 	client, err := r.apiClient()
 	if err != nil {
 		return r.fail(ExitConfig, err)
@@ -86,12 +96,7 @@ func (r *Root) runList(args []string) int {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	fs.SetOutput(r.stderr)
 	limit := fs.Int("limit", 20, "maximum number of agents to return")
-	fs.Usage = func() {
-		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli list [flags]")
-		fmt.Fprintln(r.stderr)
-		fmt.Fprintln(r.stderr, "Flags:")
-		fs.PrintDefaults()
-	}
+	fs.Usage = listUsage(r.stderr, fs)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return ExitSuccess
