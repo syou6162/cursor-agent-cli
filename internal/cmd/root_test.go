@@ -119,6 +119,23 @@ func TestRunModelsSuccess(t *testing.T) {
 	}
 }
 
+func TestRunModelsHelp(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &stderr}
+
+	if got := root.Run([]string{"models", "--help"}); got != ExitSuccess {
+		t.Fatalf("Run(models --help) = %d, want %d", got, ExitSuccess)
+	}
+	if !strings.Contains(stderr.String(), "Usage: cursor-agent-cli models") {
+		t.Fatalf("stderr = %q, want models usage text", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "List available Cursor Cloud Agent models") {
+		t.Fatalf("stderr = %q, want models description", stderr.String())
+	}
+}
+
 func TestRunListMissingAPIKey(t *testing.T) {
 	t.Setenv("CURSOR_CLOUD_AGENT_API_KEY", "")
 
