@@ -173,20 +173,8 @@ func (c *apiClient) ListAgents(ctx context.Context, limit int) (*ListAgentsRespo
 }
 
 func (c *apiClient) CreateRun(ctx context.Context, agentID string, req CreateRunRequest) (*CreateRunResponse, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("request encode failed: %w", err)
-	}
-
 	runURL := strings.TrimRight(c.agentsURL, "/") + "/" + url.PathEscape(agentID) + "/runs"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, runURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.SetBasicAuth(c.apiKey(), "")
-
-	resp, err := c.sendAndParseAPIError(httpReq)
+	resp, err := c.postJSON(ctx, runURL, req)
 	if err != nil {
 		var apiErr *APIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict {
@@ -204,20 +192,12 @@ func (c *apiClient) CreateRun(ctx context.Context, agentID string, req CreateRun
 }
 
 func (c *apiClient) CreateAgent(ctx context.Context, req CreateAgentRequest) (*CreateAgentResponse, error) {
-	body, err := json.Marshal(req)
+	resp, err := c.postJSON(ctx, c.agentsURL, req)
 	if err != nil {
-		return nil, fmt.Errorf("request encode failed: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.agentsURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.SetBasicAuth(c.apiKey(), "")
-
-	resp, err := c.sendAndParseAPIError(httpReq)
-	if err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict {
+			return nil, ErrAgentBusy
+		}
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -227,6 +207,22 @@ func (c *apiClient) CreateAgent(ctx context.Context, req CreateAgentRequest) (*C
 		return nil, fmt.Errorf("Cursor API response parse failed: %w", err)
 	}
 	return &data, nil
+}
+
+func (c *apiClient) postJSON(ctx context.Context, url string, reqBody any) (*http.Response, error) {
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("request encode failed: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth(c.apiKey(), "")
+
+	return c.sendAndParseAPIError(req)
 }
 
 func (c *apiClient) sendAndParseAPIError(req *http.Request) (*http.Response, error) {

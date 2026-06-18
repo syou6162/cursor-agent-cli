@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -291,17 +292,17 @@ func TestRunCreateSuccess(t *testing.T) {
 	if !strings.Contains(stdout.String(), "https://cursor.com/agents/bc-00000000-0000-0000-0000-000000000001") {
 		t.Fatalf("stdout = %q, want agent url", stdout.String())
 	}
-	if writer.req.Prompt.Text != "Add README" {
-		t.Fatalf("prompt = %q, want Add README", writer.req.Prompt.Text)
+	autoCreatePR := true
+	branch := "main"
+	wantReq := cursor.CreateAgentRequest{
+		Prompt: cursor.AgentPrompt{Text: "Add README"},
+		Repos: []cursor.AgentRepo{
+			{URL: "https://github.com/org/repo", StartingRef: &branch},
+		},
+		AutoCreatePR: &autoCreatePR,
 	}
-	if len(writer.req.Repos) != 1 || writer.req.Repos[0].URL != "https://github.com/org/repo" {
-		t.Fatalf("repos = %+v, want one repo", writer.req.Repos)
-	}
-	if writer.req.Repos[0].StartingRef == nil || *writer.req.Repos[0].StartingRef != "main" {
-		t.Fatalf("startingRef = %+v, want main", writer.req.Repos[0].StartingRef)
-	}
-	if writer.req.AutoCreatePR == nil || !*writer.req.AutoCreatePR {
-		t.Fatalf("autoCreatePR = %+v, want true", writer.req.AutoCreatePR)
+	if !reflect.DeepEqual(writer.req, wantReq) {
+		t.Fatalf("CreateAgent request = %+v, want %+v", writer.req, wantReq)
 	}
 }
 

@@ -447,6 +447,30 @@ func TestCreateAgentAPIError(t *testing.T) {
 	}
 }
 
+func TestCreateAgentAgentBusy(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"agent_busy"}`, http.StatusConflict)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "test-api-key",
+		AgentsURL: server.URL + "/agents",
+	})
+
+	_, err := client.CreateAgent(context.Background(), CreateAgentRequest{
+		Prompt: AgentPrompt{Text: "Add README"},
+	})
+	if err == nil {
+		t.Fatal("CreateAgent() error = nil, want agent busy error")
+	}
+	if !errors.Is(err, ErrAgentBusy) {
+		t.Fatalf("error = %v, want ErrAgentBusy", err)
+	}
+}
+
 func TestCreateRunSuccess(t *testing.T) {
 	t.Parallel()
 
