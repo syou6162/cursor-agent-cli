@@ -233,3 +233,186 @@ func TestRunListInvalidLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestRunCreateMissingAPIKey(t *testing.T) {
+	t.Setenv("CURSOR_CLOUD_AGENT_API_KEY", "")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	root := NewRoot()
+	root.stdout = &stdout
+	root.stderr = &stderr
+
+	if got := root.Run([]string{"create", "--repo", "https://github.com/org/repo", "--prompt", "test"}); got != ExitConfig {
+		t.Fatalf("Run(create) = %d, want %d", got, ExitConfig)
+	}
+	if !strings.Contains(stderr.String(), "CURSOR_CLOUD_AGENT_API_KEY") {
+		t.Fatalf("stderr = %q, want missing API key message", stderr.String())
+	}
+}
+
+func TestRunCreateSuccess(t *testing.T) {
+	t.Parallel()
+
+	writer := &stubAgentWriter{
+		response: &cursor.CreateAgentResponse{
+			Agent: cursor.CreatedAgent{
+				ID:   "bc-00000000-0000-0000-0000-000000000001",
+				Name: "Test agent",
+				URL:  "https://cursor.com/agents/bc-00000000-0000-0000-0000-000000000001",
+			},
+			Run: cursor.Run{
+				ID:      "run-00000000-0000-0000-0000-000000000001",
+				AgentID: "bc-00000000-0000-0000-0000-000000000001",
+				Status:  "CREATING",
+			},
+		},
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &stdout,
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithAgentWriter(writer), nil
+		},
+	}
+
+	if got := root.Run([]string{
+		"create",
+		"--repo", "https://github.com/org/repo",
+		"--prompt", "Add README",
+	}); got != ExitSuccess {
+		t.Fatalf("Run(create) = %d, want %d", got, ExitSuccess)
+	}
+	if !strings.Contains(stdout.String(), "bc-00000000-0000-0000-0000-000000000001") {
+		t.Fatalf("stdout = %q, want agent id", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "https://cursor.com/agents/bc-00000000-0000-0000-0000-000000000001") {
+		t.Fatalf("stdout = %q, want agent url", stdout.String())
+	}
+	if writer.req.Prompt.Text != "Add README" {
+		t.Fatalf("prompt = %q, want Add README", writer.req.Prompt.Text)
+	}
+	if len(writer.req.Repos) != 1 || writer.req.Repos[0].URL != "https://github.com/org/repo" {
+		t.Fatalf("repos = %+v, want one repo", writer.req.Repos)
+	}
+	if writer.req.Repos[0].StartingRef == nil || *writer.req.Repos[0].StartingRef != "main" {
+		t.Fatalf("startingRef = %+v, want main", writer.req.Repos[0].StartingRef)
+	}
+	if writer.req.AutoCreatePR == nil || !*writer.req.AutoCreatePR {
+		t.Fatalf("autoCreatePR = %+v, want true", writer.req.AutoCreatePR)
+	}
+}
+
+func TestRunCreateWithBranch(t *testing.T) {
+	t.Parallel()
+
+	writer := &stubAgentWriter{
+		response: &cursor.CreateAgentResponse{
+			Agent: cursor.CreatedAgent{ID: "bc-1", URL: "https://cursor.com/agents/bc-1"},
+			Run:   cursor.Run{ID: "run-1", AgentID: "bc-1"},
+		},
+	}
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &bytes.Buffer{},
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithAgentWriter(writer), nil
+		},
+	}
+
+	if got := root.Run([]string{
+		"create",
+		"--repo", "https://github.com/org/repo",
+		"--prompt", "Add README",
+		"--branch", "develop",
+	}); got != ExitSuccess {
+		t.Fatalf("Run(create --branch develop) = %d, want %d", got, ExitSuccess)
+	}
+	if writer.req.Repos[0].StartingRef == nil || *writer.req.Repos[0].StartingRef != "develop" {
+		t.Fatalf("startingRef = %+v, want develop", writer.req.Repos[0].StartingRef)
+	}
+}
+
+func TestRunCreateAPIError(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithAgentWriter(&stubAgentWriter{
+				err: &cursor.APIError{StatusCode: 500, Body: "internal error"},
+			}), nil
+		},
+	}
+
+	if got := root.Run([]string{
+		"create",
+		"--repo", "https://github.com/org/repo",
+		"--prompt", "Add README",
+	}); got != ExitAPI {
+		t.Fatalf("Run(create) = %d, want %d", got, ExitAPI)
+	}
+	if !strings.Contains(stderr.String(), "status=500") {
+		t.Fatalf("stderr = %q, want API error message", stderr.String())
+	}
+}
+
+func TestRunCreateHelp(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &stderr}
+
+	if got := root.Run([]string{"create", "--help"}); got != ExitSuccess {
+		t.Fatalf("Run(create --help) = %d, want %d", got, ExitSuccess)
+	}
+	if !strings.Contains(stderr.String(), "Usage: cursor-agent-cli create") {
+		t.Fatalf("stderr = %q, want create usage text", stderr.String())
+	}
+}
+
+func TestRunCreateMissingRepo(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			t.Fatal("client should not be called for missing repo")
+			return nil, nil
+		},
+	}
+
+	if got := root.Run([]string{"create", "--prompt", "Add README"}); got != ExitUsage {
+		t.Fatalf("Run(create) = %d, want %d", got, ExitUsage)
+	}
+	if !strings.Contains(stderr.String(), "--repo is required") {
+		t.Fatalf("stderr = %q, want missing repo message", stderr.String())
+	}
+}
+
+func TestRunCreateMissingPrompt(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			t.Fatal("client should not be called for missing prompt")
+			return nil, nil
+		},
+	}
+
+	if got := root.Run([]string{"create", "--repo", "https://github.com/org/repo"}); got != ExitUsage {
+		t.Fatalf("Run(create) = %d, want %d", got, ExitUsage)
+	}
+	if !strings.Contains(stderr.String(), "--prompt is required") {
+		t.Fatalf("stderr = %q, want missing prompt message", stderr.String())
+	}
+}

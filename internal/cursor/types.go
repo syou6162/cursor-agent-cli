@@ -64,3 +64,52 @@ type Agent struct {
 type AgentEnv struct {
 	Type string `json:"type"`
 }
+
+// AgentPrompt is the task prompt for creating or continuing an agent run.
+type AgentPrompt struct {
+	Text string `json:"text"`
+}
+
+// AgentRepo describes a repository configuration for an agent.
+type AgentRepo struct {
+	URL         string  `json:"url"`
+	StartingRef *string `json:"startingRef,omitempty"`
+	PRURL       *string `json:"prUrl,omitempty"`
+}
+
+// CreateAgentRequest is the body for POST /v1/agents.
+type CreateAgentRequest struct {
+	Prompt       AgentPrompt `json:"prompt"`
+	Repos        []AgentRepo `json:"repos,omitempty"`
+	AutoCreatePR *bool       `json:"autoCreatePR,omitempty"`
+}
+
+// CreateAgentResponse is the response body for POST /v1/agents.
+type CreateAgentResponse struct {
+	Agent CreatedAgent `json:"agent"`
+	Run   Run          `json:"run"`
+}
+
+// CreatedAgent is the full agent record returned by POST /v1/agents.
+type CreatedAgent struct {
+	ID                  string      `json:"id"`
+	Name                string      `json:"name"`
+	Status              string      `json:"status"`
+	Env                 AgentEnv    `json:"env"`
+	Repos               []AgentRepo `json:"repos,omitempty"`
+	WorkOnCurrentBranch *bool       `json:"workOnCurrentBranch,omitempty"`
+	AutoCreatePR        *bool       `json:"autoCreatePR,omitempty"`
+	URL                 string      `json:"url"`
+	CreatedAt           string      `json:"createdAt"`
+	UpdatedAt           string      `json:"updatedAt"`
+	LatestRunID         string      `json:"latestRunId"`
+}
+
+// Run describes one agent run.
+type Run struct {
+	ID        string `json:"id"`
+	AgentID   string `json:"agentId"`
+	Status    string `json:"status"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
