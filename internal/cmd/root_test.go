@@ -676,11 +676,47 @@ func TestRunStatusWatchPollsUntilTerminal(t *testing.T) {
 	if reader.calls != 2 {
 		t.Fatalf("GetRunStatus calls = %d, want 2", reader.calls)
 	}
-	if !strings.Contains(stdout.String(), "RUNNING") {
-		t.Fatalf("stdout = %q, want RUNNING status", stdout.String())
+	if strings.Contains(stdout.String(), "RUNNING") {
+		t.Fatalf("stdout = %q, should not contain intermediate RUNNING status", stdout.String())
 	}
 	if !strings.Contains(stdout.String(), "FINISHED") {
 		t.Fatalf("stdout = %q, want FINISHED status", stdout.String())
+	}
+	if strings.Count(stdout.String(), "\"status\"") != 1 {
+		t.Fatalf("stdout should contain exactly one JSON object, got %q", stdout.String())
+	}
+}
+
+func TestRunStatusWatchTimeout(t *testing.T) {
+	t.Parallel()
+
+	reader := &stubRunReader{
+		responses: []*cursor.RunStatusResponse{
+			{ID: "run-1", Status: "RUNNING"},
+		},
+	}
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithRunReader(reader), nil
+		},
+	}
+
+	origSleepAfter := sleepAfter
+	sleepAfter = func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
+	t.Cleanup(func() { sleepAfter = origSleepAfter })
+
+	if got := root.Run([]string{"status", "bc-1", "run-1", "--watch", "--interval", "0", "--timeout", "1"}); got != ExitError {
+		t.Fatalf("Run(status --watch --timeout) = %d, want %d", got, ExitError)
+	}
+	if !strings.Contains(stderr.String(), "timeout waiting for run to complete") {
+		t.Fatalf("stderr = %q, want timeout message", stderr.String())
 	}
 }
 

@@ -278,40 +278,20 @@ func (r *Root) runStatus(args []string) int {
 	intervalDur := time.Duration(*interval) * time.Second
 	timeoutDur := time.Duration(*timeout) * time.Second
 
-	if !*watch {
-		resp, err := getRunStatus(ctx, client, agentID, runID)
-		if err != nil {
+	var resp *cursor.RunStatusResponse
+	if *watch {
+		resp, err = waitForRunStatus(ctx, client, agentID, runID, intervalDur, timeoutDur)
+	} else {
+		resp, err = getRunStatus(ctx, client, agentID, runID)
+	}
+	if err != nil {
+		var apiErr *cursor.APIError
+		if errors.As(err, &apiErr) {
 			return r.fail(ExitAPI, err)
 		}
-		return r.writeJSON(resp)
+		return r.fail(ExitError, err)
 	}
-
-	deadline := time.Time{}
-	if timeoutDur > 0 {
-		deadline = time.Now().Add(timeoutDur)
-	}
-
-	for {
-		resp, err := getRunStatus(ctx, client, agentID, runID)
-		if err != nil {
-			return r.fail(ExitAPI, err)
-		}
-		if code := r.writeJSON(resp); code != ExitSuccess {
-			return code
-		}
-		if isTerminalRunStatus(resp.Status) {
-			return ExitSuccess
-		}
-		if !deadline.IsZero() && time.Now().After(deadline) {
-			return r.fail(ExitError, fmt.Errorf("timeout waiting for run to complete"))
-		}
-
-		select {
-		case <-ctx.Done():
-			return r.fail(ExitError, ctx.Err())
-		case <-sleepAfter(intervalDur):
-		}
-	}
+	return r.writeJSON(resp)
 }
 
 func (r *Root) fail(code int, err error) int {
