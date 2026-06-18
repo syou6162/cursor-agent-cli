@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,9 +14,9 @@ import (
 
 const (
 	ExitSuccess = 0
-	ExitError   = 1
+	ExitUsage   = 1
 	ExitAPI     = 2
-	ExitUsage   = 2
+	ExitError   = 3
 	ExitConfig  = 3
 )
 
@@ -53,6 +54,8 @@ func (r *Root) Run(args []string) int {
 		return r.runHelp(args[1:])
 	case "models":
 		return r.runModels(args[1:])
+	case "list":
+		return r.runList(args[1:])
 	default:
 		return r.runUnknown(args[0])
 	}
@@ -65,6 +68,38 @@ func (r *Root) runModels(_ []string) int {
 	}
 
 	resp, err := listModels(context.Background(), client)
+	if err != nil {
+		return r.fail(ExitAPI, err)
+	}
+	return r.writeJSON(resp)
+}
+
+func (r *Root) runList(args []string) int {
+	fs := flag.NewFlagSet("list", flag.ContinueOnError)
+	fs.SetOutput(r.stderr)
+	limit := fs.Int("limit", 20, "maximum number of agents to return")
+	fs.Usage = func() {
+		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli list [flags]")
+		fmt.Fprintln(r.stderr)
+		fmt.Fprintln(r.stderr, "Flags:")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return ExitSuccess
+		}
+		return r.fail(ExitUsage, err)
+	}
+	if *limit <= 0 {
+		return r.fail(ExitUsage, fmt.Errorf("--limit must be greater than 0, got %d", *limit))
+	}
+
+	client, err := r.apiClient()
+	if err != nil {
+		return r.fail(ExitConfig, err)
+	}
+
+	resp, err := listAgents(context.Background(), client, *limit)
 	if err != nil {
 		return r.fail(ExitAPI, err)
 	}
@@ -91,6 +126,7 @@ func (r *Root) runHelp(_ []string) int {
 		fmt.Fprintln(r.stderr, "Commands:")
 		fmt.Fprintln(r.stderr, "  help     Show usage information")
 		fmt.Fprintln(r.stderr, "  models   List available models")
+		fmt.Fprintln(r.stderr, "  list     List agents")
 	}
 	fs.Usage()
 	return ExitSuccess

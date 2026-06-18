@@ -41,3 +41,26 @@ type ModelVariantParam struct {
 	ID    string `json:"id"`
 	Value string `json:"value"`
 }
+
+// ListAgentsResponse is the response body for GET /v1/agents.
+type ListAgentsResponse struct {
+	Items      []Agent `json:"items"`
+	NextCursor string  `json:"nextCursor,omitempty"`
+}
+
+// Agent describes one Cloud Agent in a list response.
+type Agent struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Status      string   `json:"status"`
+	Env         AgentEnv `json:"env"`
+	URL         string   `json:"url"`
+	CreatedAt   string   `json:"createdAt"`
+	UpdatedAt   string   `json:"updatedAt"`
+	LatestRunID string   `json:"latestRunId"`
+}
+
+// AgentEnv describes the runtime environment for an agent.
+type AgentEnv struct {
+	Type string `json:"type"`
+}
