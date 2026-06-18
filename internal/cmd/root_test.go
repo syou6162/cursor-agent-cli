@@ -80,11 +80,11 @@ func TestRunModelsSuccess(t *testing.T) {
 		stdout: &stdout,
 		stderr: &stderr,
 		clientFactory: func() (cursor.Client, error) {
-			return &spyCursorClient{
+			return newStubClient(stubModelReader{
 				response: &cursor.ListModelsResponse{
 					Items: []cursor.Model{{ID: "composer-2", DisplayName: "Composer 2"}},
 				},
-			}, nil
+			}, nil), nil
 		},
 	}
 
@@ -122,13 +122,13 @@ func TestRunListSuccess(t *testing.T) {
 		stdout: &stdout,
 		stderr: &stderr,
 		clientFactory: func() (cursor.Client, error) {
-			return &spyCursorClient{
-				agentsResponse: &cursor.ListAgentsResponse{
+			return newStubClient(nil, &stubAgentReader{
+				response: &cursor.ListAgentsResponse{
 					Items: []cursor.Agent{
 						{ID: "bc-00000000-0000-0000-0000-000000000001", Name: "Test agent"},
 					},
 				},
-			}, nil
+			}), nil
 		},
 	}
 
@@ -143,23 +143,23 @@ func TestRunListSuccess(t *testing.T) {
 func TestRunListWithLimit(t *testing.T) {
 	t.Parallel()
 
-	spy := &spyCursorClient{
-		agentsResponse: &cursor.ListAgentsResponse{Items: []cursor.Agent{}},
+	reader := &stubAgentReader{
+		response: &cursor.ListAgentsResponse{Items: []cursor.Agent{}},
 	}
 	var stdout bytes.Buffer
 	root := &Root{
 		stdout: &stdout,
 		stderr: &bytes.Buffer{},
 		clientFactory: func() (cursor.Client, error) {
-			return spy, nil
+			return newStubClient(nil, reader), nil
 		},
 	}
 
 	if got := root.Run([]string{"list", "--limit", "5"}); got != ExitSuccess {
 		t.Fatalf("Run(list --limit 5) = %d, want %d", got, ExitSuccess)
 	}
-	if spy.agentsLimit != 5 {
-		t.Fatalf("agentsLimit = %d, want 5", spy.agentsLimit)
+	if reader.limit != 5 {
+		t.Fatalf("limit = %d, want 5", reader.limit)
 	}
 }
 
@@ -171,9 +171,9 @@ func TestRunListAPIError(t *testing.T) {
 		stdout: &bytes.Buffer{},
 		stderr: &stderr,
 		clientFactory: func() (cursor.Client, error) {
-			return &spyCursorClient{
-				agentsErr: errors.New("Cursor API error (status=500): internal error"),
-			}, nil
+			return newStubClient(nil, &stubAgentReader{
+				err: errors.New("Cursor API error (status=500): internal error"),
+			}), nil
 		},
 	}
 

@@ -9,6 +9,20 @@ import (
 	"github.com/syou6162/cursor-agent-cli/internal/cursor"
 )
 
+type stubAgentReader struct {
+	response *cursor.ListAgentsResponse
+	err      error
+	limit    int
+}
+
+func (s *stubAgentReader) ListAgents(_ context.Context, limit int) (*cursor.ListAgentsResponse, error) {
+	s.limit = limit
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.response, nil
+}
+
 func TestListAgentsSuccess(t *testing.T) {
 	t.Parallel()
 
@@ -21,14 +35,15 @@ func TestListAgentsSuccess(t *testing.T) {
 			},
 		},
 	}
-	spy := &spyCursorClient{agentsResponse: want, agentsLimit: -1}
+	reader := &stubAgentReader{response: want}
+	client := newStubClient(nil, reader)
 
-	got, err := listAgents(context.Background(), spy, 20)
+	got, err := listAgents(context.Background(), client, 20)
 	if err != nil {
 		t.Fatalf("listAgents() error = %v", err)
 	}
-	if spy.agentsLimit != 20 {
-		t.Fatalf("agentsLimit = %d, want 20", spy.agentsLimit)
+	if reader.limit != 20 {
+		t.Fatalf("limit = %d, want 20", reader.limit)
 	}
 	if got.Items[0].ID != want.Items[0].ID {
 		t.Fatalf("listAgents() = %+v, want %+v", got, want)
@@ -38,11 +53,11 @@ func TestListAgentsSuccess(t *testing.T) {
 func TestListAgentsAPIError(t *testing.T) {
 	t.Parallel()
 
-	spy := &spyCursorClient{
-		agentsErr: errors.New("Cursor API error (status=401): unauthorized"),
-	}
+	client := newStubClient(nil, &stubAgentReader{
+		err: errors.New("Cursor API error (status=401): unauthorized"),
+	})
 
-	_, err := listAgents(context.Background(), spy, 20)
+	_, err := listAgents(context.Background(), client, 20)
 	if err == nil {
 		t.Fatal("listAgents() error = nil, want API error")
 	}
