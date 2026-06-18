@@ -2,8 +2,8 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"reflect"
 	"testing"
 	"time"
 
@@ -22,9 +22,9 @@ func TestGetRunStatusSuccess(t *testing.T) {
 	}
 	reader := &stubRunReader{responses: []*cursor.RunStatusResponse{want}}
 
-	got, err := getRunStatus(context.Background(), newStubClientWithRunReader(reader), agentID, runID)
-	if err != nil {
-		t.Fatalf("getRunStatus() error = %v", err)
+	got := getRunStatus(context.Background(), newStubClientWithRunReader(reader), agentID, runID)
+	if got.err != nil {
+		t.Fatalf("getRunStatus() error = %v", got.err)
 	}
 	if reader.agentID != agentID {
 		t.Fatalf("agentID = %q, want %q", reader.agentID, agentID)
@@ -32,8 +32,11 @@ func TestGetRunStatusSuccess(t *testing.T) {
 	if reader.runID != runID {
 		t.Fatalf("runID = %q, want %q", reader.runID, runID)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("getRunStatus() = %+v, want %+v", got, want)
+	if got.pollingCount != 1 {
+		t.Fatalf("pollingCount = %d, want 1", got.pollingCount)
+	}
+	if got.response.Status != want.Status {
+		t.Fatalf("status = %q, want %q", got.response.Status, want.Status)
 	}
 }
 
@@ -44,14 +47,17 @@ func TestGetRunStatusAPIError(t *testing.T) {
 		err: &cursor.APIError{StatusCode: 404, Body: "not found"},
 	}
 
-	_, err := getRunStatus(context.Background(), newStubClientWithRunReader(reader), "bc-1", "run-1")
-	if err == nil {
+	got := getRunStatus(context.Background(), newStubClientWithRunReader(reader), "bc-1", "run-1")
+	if got.err == nil {
 		t.Fatal("getRunStatus() error = nil, want API error")
+	}
+	if got.pollingCount != 1 {
+		t.Fatalf("pollingCount = %d, want 1", got.pollingCount)
 	}
 
 	var apiErr *cursor.APIError
-	if !errors.As(err, &apiErr) {
-		t.Fatalf("getRunStatus() error = %T, want *cursor.APIError", err)
+	if !errors.As(got.err, &apiErr) {
+		t.Fatalf("getRunStatus() error = %T, want *cursor.APIError", got.err)
 	}
 	if apiErr.StatusCode != 404 {
 		t.Fatalf("status = %d, want 404", apiErr.StatusCode)
@@ -89,25 +95,30 @@ func TestWaitForRunStatusPollsUntilTerminal(t *testing.T) {
 	}
 	t.Cleanup(func() { sleepAfter = origSleepAfter })
 
-	got, err := waitForRunStatus(context.Background(), newStubClientWithRunReader(reader), agentID, runID, time.Millisecond, 0)
-	if err != nil {
-		t.Fatalf("waitForRunStatus() error = %v", err)
+	got := waitForRunStatus(context.Background(), newStubClientWithRunReader(reader), agentID, runID, time.Millisecond, 0)
+	if got.err != nil {
+		t.Fatalf("waitForRunStatus() error = %v", got.err)
 	}
 	if reader.calls != 3 {
 		t.Fatalf("GetRunStatus calls = %d, want 3", reader.calls)
 	}
-	if got.Status != "FINISHED" {
-		t.Fatalf("status = %q, want FINISHED", got.Status)
+	if got.pollingCount != 3 {
+		t.Fatalf("pollingCount = %d, want 3", got.pollingCount)
 	}
-	if got.Result == nil || *got.Result != result {
-		t.Fatalf("result = %v, want %q", got.Result, result)
+	if got.response.Status != "FINISHED" {
+		t.Fatalf("status = %q, want FINISHED", got.response.Status)
+	}
+	if got.response.Result == nil || *got.response.Result != result {
+		t.Fatalf("result = %v, want %q", got.response.Result, result)
 	}
 }
 
 func TestWaitForRunStatusTimeout(t *testing.T) {
+	agentID := "bc-1"
+	runID := "run-1"
 	reader := &stubRunReader{
 		responses: []*cursor.RunStatusResponse{
-			{ID: "run-1", Status: "RUNNING"},
+			{ID: runID, AgentID: agentID, Status: "RUNNING"},
 		},
 	}
 
@@ -119,12 +130,18 @@ func TestWaitForRunStatusTimeout(t *testing.T) {
 	}
 	t.Cleanup(func() { sleepAfter = origSleepAfter })
 
-	_, err := waitForRunStatus(context.Background(), newStubClientWithRunReader(reader), "bc-1", "run-1", time.Millisecond, time.Millisecond)
-	if err == nil {
+	got := waitForRunStatus(context.Background(), newStubClientWithRunReader(reader), agentID, runID, time.Millisecond, time.Millisecond)
+	if got.err == nil {
 		t.Fatal("waitForRunStatus() error = nil, want timeout error")
 	}
-	if !errors.Is(err, context.DeadlineExceeded) && err.Error() != "timeout waiting for run to complete" {
-		t.Fatalf("waitForRunStatus() error = %v, want timeout", err)
+	if !isTimeoutError(got.err) {
+		t.Fatalf("waitForRunStatus() error = %v, want timeout", got.err)
+	}
+	if got.response == nil || got.response.Status != "RUNNING" {
+		t.Fatalf("last status = %+v, want RUNNING", got.response)
+	}
+	if got.pollingCount < 1 {
+		t.Fatalf("pollingCount = %d, want >= 1", got.pollingCount)
 	}
 }
 
@@ -139,5 +156,152 @@ func TestIsTerminalRunStatus(t *testing.T) {
 	}
 	if isTerminalRunStatus("RUNNING") {
 		t.Fatal("isTerminalRunStatus(RUNNING) = true, want false")
+	}
+}
+
+func TestStatusResponseMarshalSuccess(t *testing.T) {
+	t.Parallel()
+
+	result := "Added README.md"
+	resp := newSuccessStatus(&cursor.RunStatusResponse{
+		ID:      "run-1",
+		AgentID: "bc-1",
+		Status:  "FINISHED",
+		Result:  &result,
+	}, 5, 45)
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if parsed["status"] != "FINISHED" {
+		t.Fatalf("status = %v, want FINISHED", parsed["status"])
+	}
+	cli, ok := parsed["_cli"].(map[string]any)
+	if !ok {
+		t.Fatal("_cli field missing")
+	}
+	if cli["state"] != cliStateSuccess {
+		t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateSuccess)
+	}
+	if cli["exitCode"] != float64(ExitSuccess) {
+		t.Fatalf("_cli.exitCode = %v, want %d", cli["exitCode"], ExitSuccess)
+	}
+	if cli["pollingCount"] != float64(5) {
+		t.Fatalf("_cli.pollingCount = %v, want 5", cli["pollingCount"])
+	}
+	if _, ok := cli["error"]; ok {
+		t.Fatalf("_cli.error = %v, want omitted on success", cli["error"])
+	}
+}
+
+func TestStatusResponseMarshalTimeout(t *testing.T) {
+	t.Parallel()
+
+	resp := newTimeoutStatus(&cursor.RunStatusResponse{
+		ID:      "run-1",
+		AgentID: "bc-1",
+		Status:  "RUNNING",
+	}, 12, 180, errTimeout)
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if parsed["status"] != "RUNNING" {
+		t.Fatalf("status = %v, want RUNNING", parsed["status"])
+	}
+	cli := parsed["_cli"].(map[string]any)
+	if cli["state"] != cliStateTimeout {
+		t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateTimeout)
+	}
+	if cli["exitCode"] != float64(ExitError) {
+		t.Fatalf("_cli.exitCode = %v, want %d", cli["exitCode"], ExitError)
+	}
+}
+
+func TestStatusResponseMarshalAPIError(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &cursor.APIError{StatusCode: 500, Body: "internal error"}
+	resp := newAPIErrorStatus("bc-1", "run-1", 0, 0, apiErr)
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if parsed["id"] != "run-1" {
+		t.Fatalf("id = %v, want run-1", parsed["id"])
+	}
+	if parsed["agentId"] != "bc-1" {
+		t.Fatalf("agentId = %v, want bc-1", parsed["agentId"])
+	}
+	if _, ok := parsed["status"]; ok {
+		t.Fatalf("status should be omitted, got %v", parsed["status"])
+	}
+	cli := parsed["_cli"].(map[string]any)
+	if cli["state"] != cliStateAPIError {
+		t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateAPIError)
+	}
+}
+
+func TestStatusResponseMarshalUsageError(t *testing.T) {
+	t.Parallel()
+
+	resp := newCLIOnlyStatus(cliStateUsageError, ExitUsage, errors.New("agent_id is required"))
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(parsed) != 1 {
+		t.Fatalf("parsed = %+v, want only _cli field", parsed)
+	}
+	cli := parsed["_cli"].(map[string]any)
+	if cli["state"] != cliStateUsageError {
+		t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateUsageError)
+	}
+}
+
+func TestStatusResponseMarshalConfigError(t *testing.T) {
+	t.Parallel()
+
+	resp := newCLIOnlyStatus(cliStateConfigError, ExitConfig, errors.New("CURSOR_CLOUD_AGENT_API_KEY is not set"))
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	cli := parsed["_cli"].(map[string]any)
+	if cli["state"] != cliStateConfigError {
+		t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateConfigError)
+	}
+	if cli["exitCode"] != float64(ExitConfig) {
+		t.Fatalf("_cli.exitCode = %v, want %d", cli["exitCode"], ExitConfig)
 	}
 }
