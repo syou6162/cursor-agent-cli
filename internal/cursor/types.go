@@ -123,3 +123,27 @@ type CreateRunRequest struct {
 type CreateRunResponse struct {
 	Run Run `json:"run"`
 }
+
+// RunStatusResponse is the response body for GET /v1/agents/{agent_id}/runs/{run_id}.
+type RunStatusResponse struct {
+	ID         string      `json:"id"`
+	AgentID    string      `json:"agentId"`
+	Status     string      `json:"status"`
+	CreatedAt  string      `json:"createdAt"`
+	UpdatedAt  string      `json:"updatedAt"`
+	DurationMs *int        `json:"durationMs,omitempty"`
+	Result     *string     `json:"result,omitempty"`
+	Git        *RunGitInfo `json:"git,omitempty"`
+}
+
+// RunGitInfo describes branches pushed by an agent run.
+type RunGitInfo struct {
+	Branches []RunGitBranch `json:"branches"`
+}
+
+// RunGitBranch describes one pushed branch and its pull request.
+type RunGitBranch struct {
+	RepoURL string  `json:"repoUrl"`
+	Branch  *string `json:"branch,omitempty"`
+	PRURL   *string `json:"prUrl,omitempty"`
+}

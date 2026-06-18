@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/syou6162/cursor-agent-cli/internal/cursor"
 )
@@ -569,5 +570,273 @@ func TestRunRunMissingPrompt(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "--prompt is required") {
 		t.Fatalf("stderr = %q, want missing prompt message", stderr.String())
+	}
+}
+
+func TestRunStatusMissingAPIKey(t *testing.T) {
+	t.Setenv("CURSOR_CLOUD_AGENT_API_KEY", "")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	root := NewRoot()
+	root.stdout = &stdout
+	root.stderr = &stderr
+
+	if got := root.Run([]string{"status", "bc-1", "run-1"}); got != ExitConfig {
+		t.Fatalf("Run(status) = %d, want %d", got, ExitConfig)
+	}
+	if !strings.Contains(stderr.String(), "CURSOR_CLOUD_AGENT_API_KEY") {
+		t.Fatalf("stderr = %q, want missing API key message", stderr.String())
+	}
+}
+
+func TestRunStatusSuccess(t *testing.T) {
+	t.Parallel()
+
+	agentID := "bc-00000000-0000-0000-0000-000000000001"
+	runID := "run-00000000-0000-0000-0000-000000000001"
+	result := "Added README.md"
+	prURL := "https://github.com/org/repo/pull/123"
+	reader := &stubRunReader{
+		responses: []*cursor.RunStatusResponse{
+			{
+				ID:      runID,
+				AgentID: agentID,
+				Status:  "FINISHED",
+				Result:  &result,
+				Git: &cursor.RunGitInfo{
+					Branches: []cursor.RunGitBranch{
+						{PRURL: &prURL},
+					},
+				},
+			},
+		},
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &stdout,
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithRunReader(reader), nil
+		},
+	}
+
+	if got := root.Run([]string{"status", agentID, runID}); got != ExitSuccess {
+		t.Fatalf("Run(status) = %d, want %d", got, ExitSuccess)
+	}
+	if !strings.Contains(stdout.String(), "FINISHED") {
+		t.Fatalf("stdout = %q, want FINISHED status", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), result) {
+		t.Fatalf("stdout = %q, want result text", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), prURL) {
+		t.Fatalf("stdout = %q, want prUrl", stdout.String())
+	}
+	if reader.agentID != agentID {
+		t.Fatalf("agentID = %q, want %q", reader.agentID, agentID)
+	}
+	if reader.runID != runID {
+		t.Fatalf("runID = %q, want %q", reader.runID, runID)
+	}
+}
+
+func TestRunStatusWatchPollsUntilTerminal(t *testing.T) {
+	agentID := "bc-00000000-0000-0000-0000-000000000001"
+	runID := "run-00000000-0000-0000-0000-000000000001"
+	reader := &stubRunReader{
+		responses: []*cursor.RunStatusResponse{
+			{ID: runID, AgentID: agentID, Status: "RUNNING"},
+			{ID: runID, AgentID: agentID, Status: "FINISHED"},
+		},
+	}
+	var stdout bytes.Buffer
+	root := &Root{
+		stdout: &stdout,
+		stderr: &bytes.Buffer{},
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithRunReader(reader), nil
+		},
+	}
+
+	origSleepAfter := sleepAfter
+	sleepAfter = func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
+	t.Cleanup(func() { sleepAfter = origSleepAfter })
+
+	if got := root.Run([]string{"status", agentID, runID, "--watch", "--interval", "0"}); got != ExitSuccess {
+		t.Fatalf("Run(status --watch) = %d, want %d", got, ExitSuccess)
+	}
+	if reader.calls != 2 {
+		t.Fatalf("GetRunStatus calls = %d, want 2", reader.calls)
+	}
+	if strings.Contains(stdout.String(), "RUNNING") {
+		t.Fatalf("stdout = %q, should not contain intermediate RUNNING status", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "FINISHED") {
+		t.Fatalf("stdout = %q, want FINISHED status", stdout.String())
+	}
+	if strings.Count(stdout.String(), "\"status\"") != 1 {
+		t.Fatalf("stdout should contain exactly one JSON object, got %q", stdout.String())
+	}
+}
+
+func TestRunStatusWatchTimeout(t *testing.T) {
+	reader := &stubRunReader{
+		responses: []*cursor.RunStatusResponse{
+			{ID: "run-1", Status: "RUNNING"},
+		},
+	}
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithRunReader(reader), nil
+		},
+	}
+
+	origSleepAfter := sleepAfter
+	sleepAfter = func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
+	t.Cleanup(func() { sleepAfter = origSleepAfter })
+
+	if got := root.Run([]string{"status", "bc-1", "run-1", "--watch", "--interval", "0", "--timeout", "1"}); got != ExitError {
+		t.Fatalf("Run(status --watch --timeout) = %d, want %d", got, ExitError)
+	}
+	if !strings.Contains(stderr.String(), "timeout waiting for run to complete") {
+		t.Fatalf("stderr = %q, want timeout message", stderr.String())
+	}
+}
+
+func TestRunStatusAPIError(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithRunReader(&stubRunReader{
+				err: &cursor.APIError{StatusCode: 500, Body: "internal error"},
+			}), nil
+		},
+	}
+
+	if got := root.Run([]string{"status", "bc-1", "run-1"}); got != ExitAPI {
+		t.Fatalf("Run(status) = %d, want %d", got, ExitAPI)
+	}
+	if !strings.Contains(stderr.String(), "status=500") {
+		t.Fatalf("stderr = %q, want API error message", stderr.String())
+	}
+}
+
+func TestRunStatusHelp(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &stderr}
+
+	if got := root.Run([]string{"status", "--help"}); got != ExitSuccess {
+		t.Fatalf("Run(status --help) = %d, want %d", got, ExitSuccess)
+	}
+	if !strings.Contains(stderr.String(), "Usage: cursor-agent-cli status") {
+		t.Fatalf("stderr = %q, want status usage text", stderr.String())
+	}
+}
+
+func TestRunStatusMissingAgentID(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			t.Fatal("client should not be called for missing agent_id")
+			return nil, nil
+		},
+	}
+
+	if got := root.Run([]string{"status"}); got != ExitUsage {
+		t.Fatalf("Run(status) = %d, want %d", got, ExitUsage)
+	}
+	if !strings.Contains(stderr.String(), "agent_id is required") {
+		t.Fatalf("stderr = %q, want missing agent_id message", stderr.String())
+	}
+}
+
+func TestRunStatusMissingRunID(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			t.Fatal("client should not be called for missing run_id")
+			return nil, nil
+		},
+	}
+
+	if got := root.Run([]string{"status", "bc-1"}); got != ExitUsage {
+		t.Fatalf("Run(status) = %d, want %d", got, ExitUsage)
+	}
+	if !strings.Contains(stderr.String(), "run_id is required") {
+		t.Fatalf("stderr = %q, want missing run_id message", stderr.String())
+	}
+}
+
+func TestRunStatusWatchFlagsBeforeArgsRequiresRunID(t *testing.T) {
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			t.Fatal("client should not be called when run_id is missing")
+			return nil, nil
+		},
+	}
+
+	if got := root.Run([]string{"status", "--watch", "bc-1"}); got != ExitUsage {
+		t.Fatalf("Run(status --watch bc-1) = %d, want %d", got, ExitUsage)
+	}
+	if !strings.Contains(stderr.String(), "run_id is required") {
+		t.Fatalf("stderr = %q, want missing run_id message", stderr.String())
+	}
+}
+
+func TestRunStatusWatchFlagsBeforeArgs(t *testing.T) {
+	agentID := "bc-00000000-0000-0000-0000-000000000001"
+	runID := "run-00000000-0000-0000-0000-000000000001"
+	reader := &stubRunReader{
+		responses: []*cursor.RunStatusResponse{
+			{ID: runID, AgentID: agentID, Status: "FINISHED"},
+		},
+	}
+	var stdout bytes.Buffer
+	root := &Root{
+		stdout: &stdout,
+		stderr: &bytes.Buffer{},
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithRunReader(reader), nil
+		},
+	}
+
+	if got := root.Run([]string{"status", "--watch", "--interval", "0", agentID, runID}); got != ExitSuccess {
+		t.Fatalf("Run(status --watch agent run) = %d, want %d", got, ExitSuccess)
+	}
+	if reader.agentID != agentID {
+		t.Fatalf("agentID = %q, want %q", reader.agentID, agentID)
+	}
+	if reader.runID != runID {
+		t.Fatalf("runID = %q, want %q", reader.runID, runID)
 	}
 }

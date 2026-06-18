@@ -45,12 +45,18 @@ type RunWriter interface {
 	CreateRun(ctx context.Context, agentID string, req CreateRunRequest) (*CreateRunResponse, error)
 }
 
+// RunReader groups read operations for agent runs.
+type RunReader interface {
+	GetRunStatus(ctx context.Context, agentID, runID string) (*RunStatusResponse, error)
+}
+
 // Client defines the capabilities needed by CLI commands.
 type Client interface {
 	ModelReader
 	AgentReader
 	AgentWriter
 	RunWriter
+	RunReader
 }
 
 // Config holds settings for the API client.
@@ -118,6 +124,7 @@ var _ ModelReader = (*apiClient)(nil)
 var _ AgentReader = (*apiClient)(nil)
 var _ AgentWriter = (*apiClient)(nil)
 var _ RunWriter = (*apiClient)(nil)
+var _ RunReader = (*apiClient)(nil)
 var _ Client = (*apiClient)(nil)
 
 func (c *apiClient) ListModels(ctx context.Context) (*ListModelsResponse, error) {
@@ -166,6 +173,27 @@ func (c *apiClient) ListAgents(ctx context.Context, limit int) (*ListAgentsRespo
 	defer resp.Body.Close()
 
 	var data ListAgentsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("Cursor API response parse failed: %w", err)
+	}
+	return &data, nil
+}
+
+func (c *apiClient) GetRunStatus(ctx context.Context, agentID, runID string) (*RunStatusResponse, error) {
+	runURL := strings.TrimRight(c.agentsURL, "/") + "/" + url.PathEscape(agentID) + "/runs/" + url.PathEscape(runID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, runURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(c.apiKey(), "")
+
+	resp, err := c.sendAndParseAPIError(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var data RunStatusResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, fmt.Errorf("Cursor API response parse failed: %w", err)
 	}
