@@ -702,7 +702,7 @@ func TestRunStatusWatchPollsUntilTerminal(t *testing.T) {
 	}
 	t.Cleanup(func() { sleepAfter = origSleepAfter })
 
-	if got := root.Run([]string{"status", agentID, runID, "--watch", "--interval", "0"}); got != ExitSuccess {
+	if got := root.Run([]string{"status", agentID, runID, "--watch", "--interval", "5"}); got != ExitSuccess {
 		t.Fatalf("Run(status --watch) = %d, want %d", got, ExitSuccess)
 	}
 	if reader.calls != 2 {
@@ -750,7 +750,7 @@ func TestRunStatusWatchTimeout(t *testing.T) {
 	}
 	t.Cleanup(func() { sleepAfter = origSleepAfter })
 
-	if got := root.Run([]string{"status", agentID, runID, "--watch", "--interval", "0", "--timeout", "1"}); got != ExitError {
+	if got := root.Run([]string{"status", agentID, runID, "--watch", "--interval", "5", "--timeout", "1"}); got != ExitError {
 		t.Fatalf("Run(status --watch --timeout) = %d, want %d", got, ExitError)
 	}
 	parsed := parseStatusOutput(t, stdout.String())
@@ -766,6 +766,74 @@ func TestRunStatusWatchTimeout(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "timeout waiting for run to complete") {
 		t.Fatalf("stderr = %q, want timeout message", stderr.String())
+	}
+}
+
+func TestRunStatusInvalidInterval(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "zero", args: []string{"status", "bc-1", "run-1", "--interval", "0"}},
+		{name: "one", args: []string{"status", "bc-1", "run-1", "--interval", "1"}},
+		{name: "four", args: []string{"status", "bc-1", "run-1", "--interval", "4"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			root := &Root{
+				stdout: &stdout,
+				stderr: &stderr,
+				clientFactory: func() (cursor.Client, error) {
+					t.Fatal("client should not be called for invalid interval")
+					return nil, nil
+				},
+			}
+
+			if got := root.Run(tt.args); got != ExitUsage {
+				t.Fatalf("Run(%v) = %d, want %d", tt.args, got, ExitUsage)
+			}
+			cli := parseStatusCLI(t, stdout.String())
+			if cli["state"] != cliStateUsageError {
+				t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateUsageError)
+			}
+			if !strings.Contains(stderr.String(), "at least 5 seconds") {
+				t.Fatalf("stderr = %q, want interval minimum message", stderr.String())
+			}
+		})
+	}
+}
+
+func TestRunStatusRateLimit(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &stdout,
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithRunReader(&stubRunReader{
+				err: &cursor.APIError{StatusCode: 429, Body: "too many requests"},
+			}), nil
+		},
+	}
+
+	if got := root.Run([]string{"status", "bc-1", "run-1"}); got != ExitAPI {
+		t.Fatalf("Run(status) = %d, want %d", got, ExitAPI)
+	}
+	cli := parseStatusCLI(t, stdout.String())
+	if cli["state"] != cliStateAPIError {
+		t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateAPIError)
+	}
+	if !strings.Contains(stderr.String(), "rate limit exceeded: please wait before retrying") {
+		t.Fatalf("stderr = %q, want rate limit message", stderr.String())
 	}
 }
 
@@ -913,7 +981,7 @@ func TestRunStatusWatchFlagsBeforeArgs(t *testing.T) {
 		},
 	}
 
-	if got := root.Run([]string{"status", "--watch", "--interval", "0", agentID, runID}); got != ExitSuccess {
+	if got := root.Run([]string{"status", "--watch", "--interval", "5", agentID, runID}); got != ExitSuccess {
 		t.Fatalf("Run(status --watch agent run) = %d, want %d", got, ExitSuccess)
 	}
 	if reader.agentID != agentID {

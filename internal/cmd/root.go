@@ -266,8 +266,8 @@ func (r *Root) runStatus(args []string) int {
 	if runID == "" {
 		return r.writeStatusResponse(newCLIOnlyStatus(cliStateUsageError, ExitUsage, fmt.Errorf("run_id is required")))
 	}
-	if *interval < 0 {
-		return r.writeStatusResponse(newCLIOnlyStatus(cliStateUsageError, ExitUsage, fmt.Errorf("--interval must be greater than or equal to 0, got %d", *interval)))
+	if *interval < 5 {
+		return r.writeStatusResponse(newCLIOnlyStatus(cliStateUsageError, ExitUsage, fmt.Errorf("--interval must be at least 5 seconds, got %d", *interval)))
 	}
 	if *timeout < 0 {
 		return r.writeStatusResponse(newCLIOnlyStatus(cliStateUsageError, ExitUsage, fmt.Errorf("--timeout must be greater than or equal to 0, got %d", *timeout)))

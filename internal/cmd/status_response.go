@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/syou6162/cursor-agent-cli/internal/cursor"
 )
@@ -109,11 +110,19 @@ func isTimeoutError(err error) bool {
 	return errors.Is(err, errTimeout)
 }
 
+func statusAPIError(err error) error {
+	var apiErr *cursor.APIError
+	if errors.As(err, &apiErr) && apiErr.IsRateLimit() {
+		return fmt.Errorf("rate limit exceeded: please wait before retrying")
+	}
+	return err
+}
+
 func statusResponseFromOutcome(agentID, runID string, outcome statusOutcome) StatusResponse {
 	if outcome.err != nil {
 		var apiErr *cursor.APIError
 		if errors.As(outcome.err, &apiErr) {
-			return newAPIErrorStatus(agentID, runID, outcome.pollingCount, outcome.elapsedSeconds, outcome.err)
+			return newAPIErrorStatus(agentID, runID, outcome.pollingCount, outcome.elapsedSeconds, statusAPIError(outcome.err))
 		}
 		if isTimeoutError(outcome.err) {
 			return newTimeoutStatus(outcome.response, outcome.pollingCount, outcome.elapsedSeconds, outcome.err)

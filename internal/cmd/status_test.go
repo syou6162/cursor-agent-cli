@@ -230,6 +230,34 @@ func TestStatusResponseMarshalTimeout(t *testing.T) {
 	}
 }
 
+func TestStatusResponseMarshalRateLimit(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &cursor.APIError{StatusCode: 429, Body: "too many requests"}
+	resp := newAPIErrorStatus("bc-1", "run-1", 1, 0, statusAPIError(apiErr))
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	cli := parsed["_cli"].(map[string]any)
+	if cli["state"] != cliStateAPIError {
+		t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateAPIError)
+	}
+	errMsg, ok := cli["error"].(string)
+	if !ok {
+		t.Fatalf("_cli.error = %v, want string", cli["error"])
+	}
+	if errMsg != "rate limit exceeded: please wait before retrying" {
+		t.Fatalf("_cli.error = %q, want rate limit message", errMsg)
+	}
+}
+
 func TestStatusResponseMarshalAPIError(t *testing.T) {
 	t.Parallel()
 
