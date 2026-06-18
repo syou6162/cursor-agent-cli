@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -46,8 +48,8 @@ func TestListModelsSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListModels() error = %v", err)
 	}
-	if len(got.Items) != 1 || got.Items[0].ID != "composer-2" {
-		t.Fatalf("ListModels() = %+v, want composer-2", got)
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("ListModels() = %+v, want %+v", got, want)
 	}
 
 	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("test-api-key:"))
@@ -102,8 +104,12 @@ func TestListModelsAPIError(t *testing.T) {
 	if err == nil {
 		t.Fatal("ListModels() error = nil, want API error")
 	}
-	if !strings.Contains(err.Error(), "status=401") {
-		t.Fatalf("error = %q, want status=401", err.Error())
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %T, want *APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", apiErr.StatusCode)
 	}
 }
 
@@ -223,8 +229,8 @@ func TestListAgentsSuccess(t *testing.T) {
 	if gotLimit != "20" {
 		t.Fatalf("limit query = %q, want 20", gotLimit)
 	}
-	if len(got.Items) != 1 || got.Items[0].ID != "bc-00000000-0000-0000-0000-000000000001" {
-		t.Fatalf("ListAgents() = %+v, want agent id", got)
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("ListAgents() = %+v, want %+v", got, want)
 	}
 }
 
@@ -274,8 +280,12 @@ func TestListAgentsAPIError(t *testing.T) {
 	if err == nil {
 		t.Fatal("ListAgents() error = nil, want API error")
 	}
-	if !strings.Contains(err.Error(), "status=401") {
-		t.Fatalf("error = %q, want status=401", err.Error())
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %T, want *APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", apiErr.StatusCode)
 	}
 }
 

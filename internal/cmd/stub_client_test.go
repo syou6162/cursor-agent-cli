@@ -24,6 +24,14 @@ func newStubClient(model cursor.ModelReader, agent cursor.AgentReader) cursor.Cl
 	}
 }
 
+func newStubClientWithModel(model cursor.ModelReader) cursor.Client {
+	return newStubClient(model, noopAgentReader{})
+}
+
+func newStubClientWithAgent(agent cursor.AgentReader) cursor.Client {
+	return newStubClient(noopModelReader{}, agent)
+}
+
 type noopModelReader struct{}
 
 func (noopModelReader) ListModels(context.Context) (*cursor.ListModelsResponse, error) {

@@ -166,12 +166,9 @@ func (c *apiClient) sendAndParseAPIError(req *http.Request) (*http.Response, err
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		truncated := truncateBody(string(body), maxErrorBodyDisplay)
 		if readErr != nil {
-			if truncated == "" {
-				return nil, fmt.Errorf("Cursor API error (status=%d): %w", resp.StatusCode, readErr)
-			}
-			return nil, fmt.Errorf("Cursor API error (status=%d): %s (body read failed: %w)", resp.StatusCode, truncated, readErr)
+			return nil, fmt.Errorf("Cursor API error (status=%d): body read failed: %w", resp.StatusCode, readErr)
 		}
-		return nil, fmt.Errorf("Cursor API error (status=%d): %s", resp.StatusCode, truncated)
+		return nil, &APIError{StatusCode: resp.StatusCode, Body: truncated}
 	}
 	return resp, nil
 }

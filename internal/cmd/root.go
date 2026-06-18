@@ -14,9 +14,9 @@ import (
 
 const (
 	ExitSuccess = 0
-	ExitError   = 1
+	ExitUsage   = 1
 	ExitAPI     = 2
-	ExitUsage   = 2
+	ExitError   = 3
 	ExitConfig  = 3
 )
 

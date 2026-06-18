@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"bytes"
-	"errors"
 	"strings"
 	"testing"
 
@@ -80,11 +79,11 @@ func TestRunModelsSuccess(t *testing.T) {
 		stdout: &stdout,
 		stderr: &stderr,
 		clientFactory: func() (cursor.Client, error) {
-			return newStubClient(stubModelReader{
+			return newStubClientWithModel(stubModelReader{
 				response: &cursor.ListModelsResponse{
 					Items: []cursor.Model{{ID: "composer-2", DisplayName: "Composer 2"}},
 				},
-			}, nil), nil
+			}), nil
 		},
 	}
 
@@ -122,7 +121,7 @@ func TestRunListSuccess(t *testing.T) {
 		stdout: &stdout,
 		stderr: &stderr,
 		clientFactory: func() (cursor.Client, error) {
-			return newStubClient(nil, &stubAgentReader{
+			return newStubClientWithAgent(&stubAgentReader{
 				response: &cursor.ListAgentsResponse{
 					Items: []cursor.Agent{
 						{ID: "bc-00000000-0000-0000-0000-000000000001", Name: "Test agent"},
@@ -151,7 +150,7 @@ func TestRunListWithLimit(t *testing.T) {
 		stdout: &stdout,
 		stderr: &bytes.Buffer{},
 		clientFactory: func() (cursor.Client, error) {
-			return newStubClient(nil, reader), nil
+			return newStubClientWithAgent(reader), nil
 		},
 	}
 
@@ -171,8 +170,8 @@ func TestRunListAPIError(t *testing.T) {
 		stdout: &bytes.Buffer{},
 		stderr: &stderr,
 		clientFactory: func() (cursor.Client, error) {
-			return newStubClient(nil, &stubAgentReader{
-				err: errors.New("Cursor API error (status=500): internal error"),
+			return newStubClientWithAgent(&stubAgentReader{
+				err: &cursor.APIError{StatusCode: 500, Body: "internal error"},
 			}), nil
 		},
 	}

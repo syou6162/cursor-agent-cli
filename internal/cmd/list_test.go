@@ -3,7 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
-	"strings"
+	"reflect"
 	"testing"
 
 	"github.com/syou6162/cursor-agent-cli/internal/cursor"
@@ -36,7 +36,7 @@ func TestListAgentsSuccess(t *testing.T) {
 		},
 	}
 	reader := &stubAgentReader{response: want}
-	client := newStubClient(nil, reader)
+	client := newStubClientWithAgent(reader)
 
 	got, err := listAgents(context.Background(), client, 20)
 	if err != nil {
@@ -45,7 +45,7 @@ func TestListAgentsSuccess(t *testing.T) {
 	if reader.limit != 20 {
 		t.Fatalf("limit = %d, want 20", reader.limit)
 	}
-	if got.Items[0].ID != want.Items[0].ID {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("listAgents() = %+v, want %+v", got, want)
 	}
 }
@@ -53,15 +53,20 @@ func TestListAgentsSuccess(t *testing.T) {
 func TestListAgentsAPIError(t *testing.T) {
 	t.Parallel()
 
-	client := newStubClient(nil, &stubAgentReader{
-		err: errors.New("Cursor API error (status=401): unauthorized"),
+	client := newStubClientWithAgent(&stubAgentReader{
+		err: &cursor.APIError{StatusCode: 401, Body: "unauthorized"},
 	})
 
 	_, err := listAgents(context.Background(), client, 20)
 	if err == nil {
 		t.Fatal("listAgents() error = nil, want API error")
 	}
-	if !strings.Contains(err.Error(), "status=401") {
-		t.Fatalf("error = %q, want status=401", err.Error())
+
+	var apiErr *cursor.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("listAgents() error = %T, want *cursor.APIError", err)
+	}
+	if apiErr.StatusCode != 401 {
+		t.Fatalf("status = %d, want 401", apiErr.StatusCode)
 	}
 }
