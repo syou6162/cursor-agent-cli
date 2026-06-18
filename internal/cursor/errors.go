@@ -3,6 +3,7 @@ package cursor
 import (
 	"errors"
 	"fmt"
+	"net/http"
 )
 
 // ErrAgentBusy is returned when a new run is requested while the agent is still running.
@@ -16,4 +17,9 @@ type APIError struct {
 
 func (e *APIError) Error() string {
 	return fmt.Sprintf("Cursor API error (status=%d): %s", e.StatusCode, e.Body)
+}
+
+// IsRateLimit reports whether the API returned HTTP 429 Too Many Requests.
+func (e *APIError) IsRateLimit() bool {
+	return e.StatusCode == http.StatusTooManyRequests
 }
