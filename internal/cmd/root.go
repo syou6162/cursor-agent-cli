@@ -229,13 +229,17 @@ func (r *Root) runStatus(args []string) int {
 	}
 
 	var agentID, runID string
+	agentIDFromArgs := false
+	runIDFromArgs := false
 	flagArgs := args
 	if len(flagArgs) > 0 && !strings.HasPrefix(flagArgs[0], "-") {
 		agentID = strings.TrimSpace(flagArgs[0])
+		agentIDFromArgs = true
 		flagArgs = flagArgs[1:]
 	}
 	if len(flagArgs) > 0 && !strings.HasPrefix(flagArgs[0], "-") {
 		runID = strings.TrimSpace(flagArgs[0])
+		runIDFromArgs = true
 		flagArgs = flagArgs[1:]
 	}
 
@@ -246,13 +250,13 @@ func (r *Root) runStatus(args []string) int {
 		return r.fail(ExitUsage, err)
 	}
 
-	if agentID == "" {
+	if agentID == "" && fs.NArg() >= 1 {
 		agentID = strings.TrimSpace(fs.Arg(0))
 	}
 	if runID == "" {
 		if fs.NArg() >= 2 {
 			runID = strings.TrimSpace(fs.Arg(1))
-		} else if fs.NArg() == 1 && agentID != "" {
+		} else if fs.NArg() == 1 && agentIDFromArgs && !runIDFromArgs {
 			runID = strings.TrimSpace(fs.Arg(0))
 		}
 	}

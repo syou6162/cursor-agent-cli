@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -29,27 +30,42 @@ func getRunStatus(ctx context.Context, client cursor.Client, agentID, runID stri
 
 // waitForRunStatus polls until the run reaches a terminal status or the timeout elapses.
 func waitForRunStatus(ctx context.Context, client cursor.Client, agentID, runID string, interval, timeout time.Duration) (*cursor.RunStatusResponse, error) {
-	deadline := time.Time{}
 	if timeout > 0 {
-		deadline = time.Now().Add(timeout)
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
 
 	for {
 		status, err := client.GetRunStatus(ctx, agentID, runID)
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return nil, fmt.Errorf("timeout waiting for run to complete")
+			}
 			return nil, err
 		}
 		if isTerminalRunStatus(status.Status) {
 			return status, nil
 		}
-		if !deadline.IsZero() && time.Now().After(deadline) {
-			return nil, fmt.Errorf("timeout waiting for run to complete")
+
+		sleep := interval
+		if deadline, ok := ctx.Deadline(); ok {
+			remaining := time.Until(deadline)
+			if remaining <= 0 {
+				return nil, fmt.Errorf("timeout waiting for run to complete")
+			}
+			if remaining < sleep {
+				sleep = remaining
+			}
 		}
 
 		select {
 		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return nil, fmt.Errorf("timeout waiting for run to complete")
+			}
 			return nil, ctx.Err()
-		case <-sleepAfter(interval):
+		case <-sleepAfter(sleep):
 		}
 	}
 }

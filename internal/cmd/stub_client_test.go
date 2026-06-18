@@ -148,6 +148,9 @@ func (s *stubRunReader) bind() func(context.Context, string, string) (*cursor.Ru
 		if s.err != nil {
 			return nil, s.err
 		}
+		if len(s.responses) == 0 {
+			return nil, errUnexpectedAPICall
+		}
 		idx := s.calls - 1
 		if idx >= len(s.responses) {
 			idx = len(s.responses) - 1

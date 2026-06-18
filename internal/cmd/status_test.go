@@ -59,8 +59,6 @@ func TestGetRunStatusAPIError(t *testing.T) {
 }
 
 func TestWaitForRunStatusPollsUntilTerminal(t *testing.T) {
-	t.Parallel()
-
 	agentID := "bc-00000000-0000-0000-0000-000000000001"
 	runID := "run-00000000-0000-0000-0000-000000000001"
 	result := "Added README.md"
@@ -107,8 +105,6 @@ func TestWaitForRunStatusPollsUntilTerminal(t *testing.T) {
 }
 
 func TestWaitForRunStatusTimeout(t *testing.T) {
-	t.Parallel()
-
 	reader := &stubRunReader{
 		responses: []*cursor.RunStatusResponse{
 			{ID: "run-1", Status: "RUNNING"},

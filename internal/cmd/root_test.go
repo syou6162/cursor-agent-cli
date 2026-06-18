@@ -643,8 +643,6 @@ func TestRunStatusSuccess(t *testing.T) {
 }
 
 func TestRunStatusWatchPollsUntilTerminal(t *testing.T) {
-	t.Parallel()
-
 	agentID := "bc-00000000-0000-0000-0000-000000000001"
 	runID := "run-00000000-0000-0000-0000-000000000001"
 	reader := &stubRunReader{
@@ -688,8 +686,6 @@ func TestRunStatusWatchPollsUntilTerminal(t *testing.T) {
 }
 
 func TestRunStatusWatchTimeout(t *testing.T) {
-	t.Parallel()
-
 	reader := &stubRunReader{
 		responses: []*cursor.RunStatusResponse{
 			{ID: "run-1", Status: "RUNNING"},
@@ -795,5 +791,52 @@ func TestRunStatusMissingRunID(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "run_id is required") {
 		t.Fatalf("stderr = %q, want missing run_id message", stderr.String())
+	}
+}
+
+func TestRunStatusWatchFlagsBeforeArgsRequiresRunID(t *testing.T) {
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			t.Fatal("client should not be called when run_id is missing")
+			return nil, nil
+		},
+	}
+
+	if got := root.Run([]string{"status", "--watch", "bc-1"}); got != ExitUsage {
+		t.Fatalf("Run(status --watch bc-1) = %d, want %d", got, ExitUsage)
+	}
+	if !strings.Contains(stderr.String(), "run_id is required") {
+		t.Fatalf("stderr = %q, want missing run_id message", stderr.String())
+	}
+}
+
+func TestRunStatusWatchFlagsBeforeArgs(t *testing.T) {
+	agentID := "bc-00000000-0000-0000-0000-000000000001"
+	runID := "run-00000000-0000-0000-0000-000000000001"
+	reader := &stubRunReader{
+		responses: []*cursor.RunStatusResponse{
+			{ID: runID, AgentID: agentID, Status: "FINISHED"},
+		},
+	}
+	var stdout bytes.Buffer
+	root := &Root{
+		stdout: &stdout,
+		stderr: &bytes.Buffer{},
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithRunReader(reader), nil
+		},
+	}
+
+	if got := root.Run([]string{"status", "--watch", "--interval", "0", agentID, runID}); got != ExitSuccess {
+		t.Fatalf("Run(status --watch agent run) = %d, want %d", got, ExitSuccess)
+	}
+	if reader.agentID != agentID {
+		t.Fatalf("agentID = %q, want %q", reader.agentID, agentID)
+	}
+	if reader.runID != runID {
+		t.Fatalf("runID = %q, want %q", reader.runID, runID)
 	}
 }
