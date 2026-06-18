@@ -56,6 +56,35 @@ func TestListModelsSuccess(t *testing.T) {
 	}
 }
 
+func TestListModelsTrimsBaseURLWhitespace(t *testing.T) {
+	t.Parallel()
+
+	want := ListModelsResponse{Items: []Model{{ID: "m1", DisplayName: "M1"}}}
+	body, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "test-api-key",
+		ModelsURL: " " + server.URL + "/models ",
+	})
+
+	got, err := client.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels() error = %v", err)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("ListModels() = %+v, want one item", got)
+	}
+}
+
 func TestListModelsAPIError(t *testing.T) {
 	t.Parallel()
 

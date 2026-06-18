@@ -64,11 +64,11 @@ func ClientFromEnv() (Client, error) {
 }
 
 func newAPIClient(cfg Config) *apiClient {
-	baseURL := cfg.BaseURL
+	baseURL := strings.TrimSpace(cfg.BaseURL)
 	if baseURL == "" {
 		baseURL = defaultAPIBaseURL
 	}
-	modelsURL := cfg.ModelsURL
+	modelsURL := strings.TrimSpace(cfg.ModelsURL)
 	if modelsURL == "" {
 		modelsURL = strings.TrimRight(baseURL, "/") + "/models"
 	}
@@ -115,8 +115,14 @@ func (c *apiClient) sendAndParseAPIError(req *http.Request) (*http.Response, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		truncated := truncateBody(string(body), maxErrorBodyDisplay)
+		if readErr != nil {
+			if truncated == "" {
+				return nil, fmt.Errorf("Cursor API error (status=%d): %w", resp.StatusCode, readErr)
+			}
+			return nil, fmt.Errorf("Cursor API error (status=%d): %s (body read failed: %w)", resp.StatusCode, truncated, readErr)
+		}
 		return nil, fmt.Errorf("Cursor API error (status=%d): %s", resp.StatusCode, truncated)
 	}
 	return resp, nil

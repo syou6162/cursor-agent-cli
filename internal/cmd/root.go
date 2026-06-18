@@ -12,10 +12,8 @@ const (
 	ExitSuccess = 0
 	ExitError   = 1
 	ExitAPI     = 2
+	ExitUsage   = 2
 	ExitConfig  = 3
-
-	// ExitUsage is an alias for ExitAPI for unknown commands.
-	ExitUsage = ExitAPI
 )
 
 // Root is the top-level command dispatcher for cursor-agent-cli.
