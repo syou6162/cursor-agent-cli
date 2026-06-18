@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,11 +40,17 @@ type AgentWriter interface {
 	CreateAgent(ctx context.Context, req CreateAgentRequest) (*CreateAgentResponse, error)
 }
 
+// RunWriter groups write operations for agent runs.
+type RunWriter interface {
+	CreateRun(ctx context.Context, agentID string, req CreateRunRequest) (*CreateRunResponse, error)
+}
+
 // Client defines the capabilities needed by CLI commands.
 type Client interface {
 	ModelReader
 	AgentReader
 	AgentWriter
+	RunWriter
 }
 
 // Config holds settings for the API client.
@@ -110,6 +117,7 @@ func newAPIClient(cfg Config) *apiClient {
 var _ ModelReader = (*apiClient)(nil)
 var _ AgentReader = (*apiClient)(nil)
 var _ AgentWriter = (*apiClient)(nil)
+var _ RunWriter = (*apiClient)(nil)
 var _ Client = (*apiClient)(nil)
 
 func (c *apiClient) ListModels(ctx context.Context) (*ListModelsResponse, error) {
@@ -158,6 +166,37 @@ func (c *apiClient) ListAgents(ctx context.Context, limit int) (*ListAgentsRespo
 	defer resp.Body.Close()
 
 	var data ListAgentsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("Cursor API response parse failed: %w", err)
+	}
+	return &data, nil
+}
+
+func (c *apiClient) CreateRun(ctx context.Context, agentID string, req CreateRunRequest) (*CreateRunResponse, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("request encode failed: %w", err)
+	}
+
+	runURL := strings.TrimRight(c.agentsURL, "/") + "/" + url.PathEscape(agentID) + "/runs"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, runURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.SetBasicAuth(c.apiKey(), "")
+
+	resp, err := c.sendAndParseAPIError(httpReq)
+	if err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict {
+			return nil, ErrAgentBusy
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var data CreateRunResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, fmt.Errorf("Cursor API response parse failed: %w", err)
 	}

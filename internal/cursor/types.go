@@ -113,3 +113,13 @@ type Run struct {
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
 }
+
+// CreateRunRequest is the body for POST /v1/agents/{agent_id}/runs.
+type CreateRunRequest struct {
+	Prompt AgentPrompt `json:"prompt"`
+}
+
+// CreateRunResponse is the response body for POST /v1/agents/{agent_id}/runs.
+type CreateRunResponse struct {
+	Run Run `json:"run"`
+}

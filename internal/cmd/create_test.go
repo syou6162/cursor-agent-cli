@@ -45,6 +45,10 @@ func (s *spyCreateClient) CreateAgent(_ context.Context, req cursor.CreateAgentR
 	return s.createAgentResp, nil
 }
 
+func (s *spyCreateClient) CreateRun(context.Context, string, cursor.CreateRunRequest) (*cursor.CreateRunResponse, error) {
+	panic("unexpected CreateRun call")
+}
+
 func TestCreateAgentSuccess(t *testing.T) {
 	t.Parallel()
 
