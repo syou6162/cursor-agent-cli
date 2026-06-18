@@ -589,3 +589,92 @@ func TestCreateRunAPIError(t *testing.T) {
 		t.Fatalf("status = %d, want 400", apiErr.StatusCode)
 	}
 }
+
+func TestGetRunStatusSuccess(t *testing.T) {
+	t.Parallel()
+
+	agentID := "bc-00000000-0000-0000-0000-000000000001"
+	runID := "run-00000000-0000-0000-0000-000000000001"
+	result := "Added README.md"
+	prURL := "https://github.com/org/repo/pull/123"
+	branch := "cursor/add-readme-a1b2"
+	want := RunStatusResponse{
+		ID:      runID,
+		AgentID: agentID,
+		Status:  "FINISHED",
+		Result:  &result,
+		Git: &RunGitInfo{
+			Branches: []RunGitBranch{
+				{
+					RepoURL: "github.com/org/repo",
+					Branch:  &branch,
+					PRURL:   &prURL,
+				},
+			},
+		},
+	}
+	body, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/agents/"+agentID+"/runs/"+runID {
+			t.Errorf("path = %q, want /agents/%s/runs/%s", r.URL.Path, agentID, runID)
+		}
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %q, want GET", r.Method)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "test-api-key",
+		AgentsURL: server.URL + "/agents",
+	})
+
+	got, err := client.GetRunStatus(context.Background(), agentID, runID)
+	if err != nil {
+		t.Fatalf("GetRunStatus() error = %v", err)
+	}
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("GetRunStatus() = %+v, want %+v", got, want)
+	}
+
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("test-api-key:"))
+	if gotAuth != wantAuth {
+		t.Fatalf("Authorization = %q, want %q", gotAuth, wantAuth)
+	}
+}
+
+func TestGetRunStatusAPIError(t *testing.T) {
+	t.Parallel()
+
+	agentID := "bc-00000000-0000-0000-0000-000000000001"
+	runID := "run-00000000-0000-0000-0000-000000000001"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "bad-key",
+		AgentsURL: server.URL + "/agents",
+	})
+
+	_, err := client.GetRunStatus(context.Background(), agentID, runID)
+	if err == nil {
+		t.Fatal("GetRunStatus() error = nil, want API error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %T, want *APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", apiErr.StatusCode)
+	}
+}

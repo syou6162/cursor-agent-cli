@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/syou6162/cursor-agent-cli/internal/cursor"
 )
@@ -61,6 +62,8 @@ func (r *Root) Run(args []string) int {
 		return r.runCreate(args[1:])
 	case "run":
 		return r.runRun(args[1:])
+	case "status":
+		return r.runStatus(args[1:])
 	default:
 		return r.runUnknown(args[0])
 	}
@@ -212,6 +215,105 @@ func (r *Root) runRun(args []string) int {
 	return r.writeJSON(resp)
 }
 
+func (r *Root) runStatus(args []string) int {
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	fs.SetOutput(r.stderr)
+	watch := fs.Bool("watch", false, "poll until the run reaches a terminal status")
+	interval := fs.Int("interval", 15, "polling interval in seconds")
+	timeout := fs.Int("timeout", 0, "maximum wait time in seconds (0 = no limit)")
+	fs.Usage = func() {
+		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli status <agent_id> <run_id> [flags]")
+		fmt.Fprintln(r.stderr)
+		fmt.Fprintln(r.stderr, "Flags:")
+		fs.PrintDefaults()
+	}
+
+	var agentID, runID string
+	flagArgs := args
+	if len(flagArgs) > 0 && !strings.HasPrefix(flagArgs[0], "-") {
+		agentID = strings.TrimSpace(flagArgs[0])
+		flagArgs = flagArgs[1:]
+	}
+	if len(flagArgs) > 0 && !strings.HasPrefix(flagArgs[0], "-") {
+		runID = strings.TrimSpace(flagArgs[0])
+		flagArgs = flagArgs[1:]
+	}
+
+	if err := fs.Parse(flagArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return ExitSuccess
+		}
+		return r.fail(ExitUsage, err)
+	}
+
+	if agentID == "" {
+		agentID = strings.TrimSpace(fs.Arg(0))
+	}
+	if runID == "" {
+		if fs.NArg() >= 2 {
+			runID = strings.TrimSpace(fs.Arg(1))
+		} else if fs.NArg() == 1 && agentID != "" {
+			runID = strings.TrimSpace(fs.Arg(0))
+		}
+	}
+	if agentID == "" {
+		return r.fail(ExitUsage, fmt.Errorf("agent_id is required"))
+	}
+	if runID == "" {
+		return r.fail(ExitUsage, fmt.Errorf("run_id is required"))
+	}
+	if *interval < 0 {
+		return r.fail(ExitUsage, fmt.Errorf("--interval must be greater than or equal to 0, got %d", *interval))
+	}
+	if *timeout < 0 {
+		return r.fail(ExitUsage, fmt.Errorf("--timeout must be greater than or equal to 0, got %d", *timeout))
+	}
+
+	client, err := r.apiClient()
+	if err != nil {
+		return r.fail(ExitConfig, err)
+	}
+
+	ctx := context.Background()
+	intervalDur := time.Duration(*interval) * time.Second
+	timeoutDur := time.Duration(*timeout) * time.Second
+
+	if !*watch {
+		resp, err := getRunStatus(ctx, client, agentID, runID)
+		if err != nil {
+			return r.fail(ExitAPI, err)
+		}
+		return r.writeJSON(resp)
+	}
+
+	deadline := time.Time{}
+	if timeoutDur > 0 {
+		deadline = time.Now().Add(timeoutDur)
+	}
+
+	for {
+		resp, err := getRunStatus(ctx, client, agentID, runID)
+		if err != nil {
+			return r.fail(ExitAPI, err)
+		}
+		if code := r.writeJSON(resp); code != ExitSuccess {
+			return code
+		}
+		if isTerminalRunStatus(resp.Status) {
+			return ExitSuccess
+		}
+		if !deadline.IsZero() && time.Now().After(deadline) {
+			return r.fail(ExitError, fmt.Errorf("timeout waiting for run to complete"))
+		}
+
+		select {
+		case <-ctx.Done():
+			return r.fail(ExitError, ctx.Err())
+		case <-sleepAfter(intervalDur):
+		}
+	}
+}
+
 func (r *Root) fail(code int, err error) int {
 	fmt.Fprintf(r.stderr, "error: %v\n", err)
 	return code
@@ -235,6 +337,7 @@ func (r *Root) runHelp(_ []string) int {
 		fmt.Fprintln(r.stderr, "  list     List agents")
 		fmt.Fprintln(r.stderr, "  create   Create a Cloud Agent")
 		fmt.Fprintln(r.stderr, "  run      Start a new run on an existing agent")
+		fmt.Fprintln(r.stderr, "  status   Get the status of an agent run")
 	}
 	fs.Usage()
 	return ExitSuccess

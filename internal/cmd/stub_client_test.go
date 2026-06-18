@@ -10,10 +10,11 @@ import (
 var errUnexpectedAPICall = errors.New("unexpected API call")
 
 type stubClient struct {
-	listModels  func(context.Context) (*cursor.ListModelsResponse, error)
-	listAgents  func(context.Context, int) (*cursor.ListAgentsResponse, error)
-	createAgent func(context.Context, cursor.CreateAgentRequest) (*cursor.CreateAgentResponse, error)
-	createRun   func(context.Context, string, cursor.CreateRunRequest) (*cursor.CreateRunResponse, error)
+	listModels    func(context.Context) (*cursor.ListModelsResponse, error)
+	listAgents    func(context.Context, int) (*cursor.ListAgentsResponse, error)
+	createAgent   func(context.Context, cursor.CreateAgentRequest) (*cursor.CreateAgentResponse, error)
+	createRun     func(context.Context, string, cursor.CreateRunRequest) (*cursor.CreateRunResponse, error)
+	getRunStatus  func(context.Context, string, string) (*cursor.RunStatusResponse, error)
 }
 
 func (s stubClient) ListModels(ctx context.Context) (*cursor.ListModelsResponse, error) {
@@ -42,6 +43,13 @@ func (s stubClient) CreateRun(ctx context.Context, agentID string, req cursor.Cr
 		return nil, errUnexpectedAPICall
 	}
 	return s.createRun(ctx, agentID, req)
+}
+
+func (s stubClient) GetRunStatus(ctx context.Context, agentID, runID string) (*cursor.RunStatusResponse, error) {
+	if s.getRunStatus == nil {
+		return nil, errUnexpectedAPICall
+	}
+	return s.getRunStatus(ctx, agentID, runID)
 }
 
 type stubModelReader struct {
@@ -122,4 +130,32 @@ func newStubClientWithAgentWriter(writer *stubAgentWriter) cursor.Client {
 
 func newStubClientWithRunWriter(writer *stubRunWriter) cursor.Client {
 	return stubClient{createRun: writer.bind()}
+}
+
+type stubRunReader struct {
+	agentID   string
+	runID     string
+	responses []*cursor.RunStatusResponse
+	err       error
+	calls     int
+}
+
+func (s *stubRunReader) bind() func(context.Context, string, string) (*cursor.RunStatusResponse, error) {
+	return func(_ context.Context, agentID, runID string) (*cursor.RunStatusResponse, error) {
+		s.calls++
+		s.agentID = agentID
+		s.runID = runID
+		if s.err != nil {
+			return nil, s.err
+		}
+		idx := s.calls - 1
+		if idx >= len(s.responses) {
+			idx = len(s.responses) - 1
+		}
+		return s.responses[idx], nil
+	}
+}
+
+func newStubClientWithRunReader(reader *stubRunReader) cursor.Client {
+	return stubClient{getRunStatus: reader.bind()}
 }
