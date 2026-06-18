@@ -134,9 +134,12 @@ func TestClientFromEnvSuccess(t *testing.T) {
 }
 
 type spyClient struct {
-	response *ListModelsResponse
-	err      error
-	called   bool
+	response       *ListModelsResponse
+	err            error
+	called         bool
+	agentsResponse *ListAgentsResponse
+	agentsErr      error
+	agentsLimit    int
 }
 
 func (s *spyClient) ListModels(_ context.Context) (*ListModelsResponse, error) {
@@ -145,6 +148,14 @@ func (s *spyClient) ListModels(_ context.Context) (*ListModelsResponse, error) {
 		return nil, s.err
 	}
 	return s.response, nil
+}
+
+func (s *spyClient) ListAgents(_ context.Context, limit int) (*ListAgentsResponse, error) {
+	s.agentsLimit = limit
+	if s.agentsErr != nil {
+		return nil, s.agentsErr
+	}
+	return s.agentsResponse, nil
 }
 
 func TestSpyClientListModels(t *testing.T) {
@@ -165,5 +176,105 @@ func TestSpyClientListModels(t *testing.T) {
 	}
 	if len(got.Items) != 1 || got.Items[0].ID != "gpt-5" {
 		t.Fatalf("ListModels() = %+v, want gpt-5", got)
+	}
+}
+
+func TestListAgentsSuccess(t *testing.T) {
+	t.Parallel()
+
+	want := ListAgentsResponse{
+		Items: []Agent{
+			{
+				ID:     "bc-00000000-0000-0000-0000-000000000001",
+				Name:   "Add README with setup instructions",
+				Status: "ACTIVE",
+			},
+		},
+		NextCursor: "bc-00000000-0000-0000-0000-000000000002",
+	}
+	body, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+
+	var gotLimit string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/agents" {
+			t.Errorf("path = %q, want /agents", r.URL.Path)
+		}
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %q, want GET", r.Method)
+		}
+		gotLimit = r.URL.Query().Get("limit")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "test-api-key",
+		AgentsURL: server.URL + "/agents",
+	})
+
+	got, err := client.ListAgents(context.Background(), 20)
+	if err != nil {
+		t.Fatalf("ListAgents() error = %v", err)
+	}
+	if gotLimit != "20" {
+		t.Fatalf("limit query = %q, want 20", gotLimit)
+	}
+	if len(got.Items) != 1 || got.Items[0].ID != "bc-00000000-0000-0000-0000-000000000001" {
+		t.Fatalf("ListAgents() = %+v, want agent id", got)
+	}
+}
+
+func TestListAgentsTrimsAgentsURLWhitespace(t *testing.T) {
+	t.Parallel()
+
+	want := ListAgentsResponse{Items: []Agent{{ID: "bc-1", Name: "Agent 1"}}}
+	body, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "test-api-key",
+		AgentsURL: " " + server.URL + "/agents ",
+	})
+
+	got, err := client.ListAgents(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("ListAgents() error = %v", err)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("ListAgents() = %+v, want one item", got)
+	}
+}
+
+func TestListAgentsAPIError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "bad-key",
+		AgentsURL: server.URL + "/agents",
+	})
+
+	_, err := client.ListAgents(context.Background(), 20)
+	if err == nil {
+		t.Fatal("ListAgents() error = nil, want API error")
+	}
+	if !strings.Contains(err.Error(), "status=401") {
+		t.Fatalf("error = %q, want status=401", err.Error())
 	}
 }

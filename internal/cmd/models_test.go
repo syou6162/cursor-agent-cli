@@ -10,8 +10,11 @@ import (
 )
 
 type spyCursorClient struct {
-	response *cursor.ListModelsResponse
-	err      error
+	response      *cursor.ListModelsResponse
+	err           error
+	agentsResponse *cursor.ListAgentsResponse
+	agentsErr      error
+	agentsLimit    int
 }
 
 func (s *spyCursorClient) ListModels(_ context.Context) (*cursor.ListModelsResponse, error) {
@@ -19,6 +22,14 @@ func (s *spyCursorClient) ListModels(_ context.Context) (*cursor.ListModelsRespo
 		return nil, s.err
 	}
 	return s.response, nil
+}
+
+func (s *spyCursorClient) ListAgents(_ context.Context, limit int) (*cursor.ListAgentsResponse, error) {
+	s.agentsLimit = limit
+	if s.agentsErr != nil {
+		return nil, s.agentsErr
+	}
+	return s.agentsResponse, nil
 }
 
 func TestListModelsSuccess(t *testing.T) {

@@ -53,6 +53,8 @@ func (r *Root) Run(args []string) int {
 		return r.runHelp(args[1:])
 	case "models":
 		return r.runModels(args[1:])
+	case "list":
+		return r.runList(args[1:])
 	default:
 		return r.runUnknown(args[0])
 	}
@@ -65,6 +67,26 @@ func (r *Root) runModels(_ []string) int {
 	}
 
 	resp, err := listModels(context.Background(), client)
+	if err != nil {
+		return r.fail(ExitAPI, err)
+	}
+	return r.writeJSON(resp)
+}
+
+func (r *Root) runList(args []string) int {
+	fs := flag.NewFlagSet("list", flag.ContinueOnError)
+	fs.SetOutput(r.stderr)
+	limit := fs.Int("limit", 20, "maximum number of agents to return")
+	if err := fs.Parse(args); err != nil {
+		return r.fail(ExitUsage, err)
+	}
+
+	client, err := r.apiClient()
+	if err != nil {
+		return r.fail(ExitConfig, err)
+	}
+
+	resp, err := listAgents(context.Background(), client, *limit)
 	if err != nil {
 		return r.fail(ExitAPI, err)
 	}
@@ -91,6 +113,7 @@ func (r *Root) runHelp(_ []string) int {
 		fmt.Fprintln(r.stderr, "Commands:")
 		fmt.Fprintln(r.stderr, "  help     Show usage information")
 		fmt.Fprintln(r.stderr, "  models   List available models")
+		fmt.Fprintln(r.stderr, "  list     List agents")
 	}
 	fs.Usage()
 	return ExitSuccess

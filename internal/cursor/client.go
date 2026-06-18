@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -26,9 +28,15 @@ type ModelReader interface {
 	ListModels(ctx context.Context) (*ListModelsResponse, error)
 }
 
+// AgentReader groups read operations for agents.
+type AgentReader interface {
+	ListAgents(ctx context.Context, limit int) (*ListAgentsResponse, error)
+}
+
 // Client defines the capabilities needed by CLI commands.
 type Client interface {
 	ModelReader
+	AgentReader
 }
 
 // Config holds settings for the API client.
@@ -36,6 +44,7 @@ type Config struct {
 	APIKey     string
 	BaseURL    string
 	ModelsURL  string
+	AgentsURL  string
 	HTTPClient *http.Client
 }
 
@@ -43,6 +52,7 @@ type apiClient struct {
 	apiKey     func() string
 	httpClient *http.Client
 	modelsURL  string
+	agentsURL  string
 }
 
 // NewClient creates a Client from the given configuration.
@@ -72,6 +82,10 @@ func newAPIClient(cfg Config) *apiClient {
 	if modelsURL == "" {
 		modelsURL = strings.TrimRight(baseURL, "/") + "/models"
 	}
+	agentsURL := strings.TrimSpace(cfg.AgentsURL)
+	if agentsURL == "" {
+		agentsURL = strings.TrimRight(baseURL, "/") + "/agents"
+	}
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: defaultTimeoutSecs * time.Second}
@@ -82,10 +96,12 @@ func newAPIClient(cfg Config) *apiClient {
 		apiKey:     func() string { return strings.TrimSpace(apiKey) },
 		httpClient: httpClient,
 		modelsURL:  modelsURL,
+		agentsURL:  agentsURL,
 	}
 }
 
 var _ ModelReader = (*apiClient)(nil)
+var _ AgentReader = (*apiClient)(nil)
 var _ Client = (*apiClient)(nil)
 
 func (c *apiClient) ListModels(ctx context.Context) (*ListModelsResponse, error) {
@@ -102,6 +118,30 @@ func (c *apiClient) ListModels(ctx context.Context) (*ListModelsResponse, error)
 	defer resp.Body.Close()
 
 	var data ListModelsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("Cursor API response parse failed: %w", err)
+	}
+	return &data, nil
+}
+
+func (c *apiClient) ListAgents(ctx context.Context, limit int) (*ListAgentsResponse, error) {
+	params := url.Values{}
+	params.Set("limit", strconv.Itoa(limit))
+
+	reqURL := c.agentsURL + "?" + params.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(c.apiKey(), "")
+
+	resp, err := c.sendAndParseAPIError(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var data ListAgentsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, fmt.Errorf("Cursor API response parse failed: %w", err)
 	}

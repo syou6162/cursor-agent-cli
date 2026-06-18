@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
@@ -92,5 +93,94 @@ func TestRunModelsSuccess(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "composer-2") {
 		t.Fatalf("stdout = %q, want composer-2", stdout.String())
+	}
+}
+
+func TestRunListMissingAPIKey(t *testing.T) {
+	t.Setenv("CURSOR_CLOUD_AGENT_API_KEY", "")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	root := NewRoot()
+	root.stdout = &stdout
+	root.stderr = &stderr
+
+	if got := root.Run([]string{"list"}); got != ExitConfig {
+		t.Fatalf("Run(list) = %d, want %d", got, ExitConfig)
+	}
+	if !strings.Contains(stderr.String(), "CURSOR_CLOUD_AGENT_API_KEY") {
+		t.Fatalf("stderr = %q, want missing API key message", stderr.String())
+	}
+}
+
+func TestRunListSuccess(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &stdout,
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return &spyCursorClient{
+				agentsResponse: &cursor.ListAgentsResponse{
+					Items: []cursor.Agent{
+						{ID: "bc-00000000-0000-0000-0000-000000000001", Name: "Test agent"},
+					},
+				},
+			}, nil
+		},
+	}
+
+	if got := root.Run([]string{"list"}); got != ExitSuccess {
+		t.Fatalf("Run(list) = %d, want %d", got, ExitSuccess)
+	}
+	if !strings.Contains(stdout.String(), "bc-00000000-0000-0000-0000-000000000001") {
+		t.Fatalf("stdout = %q, want agent id", stdout.String())
+	}
+}
+
+func TestRunListWithLimit(t *testing.T) {
+	t.Parallel()
+
+	spy := &spyCursorClient{
+		agentsResponse: &cursor.ListAgentsResponse{Items: []cursor.Agent{}},
+	}
+	var stdout bytes.Buffer
+	root := &Root{
+		stdout: &stdout,
+		stderr: &bytes.Buffer{},
+		clientFactory: func() (cursor.Client, error) {
+			return spy, nil
+		},
+	}
+
+	if got := root.Run([]string{"list", "--limit", "5"}); got != ExitSuccess {
+		t.Fatalf("Run(list --limit 5) = %d, want %d", got, ExitSuccess)
+	}
+	if spy.agentsLimit != 5 {
+		t.Fatalf("agentsLimit = %d, want 5", spy.agentsLimit)
+	}
+}
+
+func TestRunListAPIError(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return &spyCursorClient{
+				agentsErr: errors.New("Cursor API error (status=500): internal error"),
+			}, nil
+		},
+	}
+
+	if got := root.Run([]string{"list"}); got != ExitAPI {
+		t.Fatalf("Run(list) = %d, want %d", got, ExitAPI)
+	}
+	if !strings.Contains(stderr.String(), "status=500") {
+		t.Fatalf("stderr = %q, want API error message", stderr.String())
 	}
 }
