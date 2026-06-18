@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/syou6162/cursor-agent-cli/internal/cursor"
@@ -17,6 +16,8 @@ var terminalRunStatuses = map[string]struct{}{
 }
 
 var sleepAfter = time.After
+
+var errTimeout = errors.New("timeout waiting for run to complete")
 
 func isTerminalRunStatus(status string) bool {
 	_, ok := terminalRunStatuses[status]
@@ -71,7 +72,7 @@ func waitForRunStatus(ctx context.Context, client cursor.Client, agentID, runID 
 					response:       lastStatus,
 					pollingCount:   pollingCount,
 					elapsedSeconds: elapsedSecondsSince(start),
-					err:            fmt.Errorf("timeout waiting for run to complete"),
+					err:            errTimeout,
 				}
 			}
 			return statusOutcome{
@@ -98,7 +99,7 @@ func waitForRunStatus(ctx context.Context, client cursor.Client, agentID, runID 
 					response:       lastStatus,
 					pollingCount:   pollingCount,
 					elapsedSeconds: elapsedSecondsSince(start),
-					err:            fmt.Errorf("timeout waiting for run to complete"),
+					err:            errTimeout,
 				}
 			}
 			if remaining < sleep {
@@ -113,7 +114,7 @@ func waitForRunStatus(ctx context.Context, client cursor.Client, agentID, runID 
 					response:       lastStatus,
 					pollingCount:   pollingCount,
 					elapsedSeconds: elapsedSecondsSince(start),
-					err:            fmt.Errorf("timeout waiting for run to complete"),
+					err:            errTimeout,
 				}
 			}
 			return statusOutcome{

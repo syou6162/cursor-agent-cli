@@ -106,7 +106,7 @@ func newTimeoutStatus(run *cursor.RunStatusResponse, pollingCount, elapsedSecond
 }
 
 func isTimeoutError(err error) bool {
-	return err != nil && err.Error() == "timeout waiting for run to complete"
+	return errors.Is(err, errTimeout)
 }
 
 func statusResponseFromOutcome(agentID, runID string, outcome statusOutcome) StatusResponse {
@@ -134,16 +134,10 @@ func (s StatusResponse) MarshalJSON() ([]byte, error) {
 		return json.Marshal(struct {
 			ID      string        `json:"id"`
 			AgentID string        `json:"agentId"`
-			Status  *string       `json:"status"`
-			Result  *string       `json:"result"`
-			Git     *string       `json:"git"`
 			CLI     CLIStatusInfo `json:"_cli"`
 		}{
 			ID:      s.RunID,
 			AgentID: s.AgentID,
-			Status:  nil,
-			Result:  nil,
-			Git:     nil,
 			CLI:     s.CLI,
 		})
 	default:

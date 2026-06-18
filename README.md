@@ -44,7 +44,7 @@ go build .
 
 ## 認証
 
-今後追加されるサブコマンドでは、環境変数 `CURSOR_CLOUD_AGENT_API_KEY` を使用して Cursor Cloud Agent API に認証します。
+各サブコマンドは、環境変数 `CURSOR_CLOUD_AGENT_API_KEY` を使用して Cursor Cloud Agent API に認証します。
 
 ## サブコマンドと出力形式
 
@@ -125,9 +125,6 @@ API エラー:
 {
   "id": "run-1",
   "agentId": "bc-1",
-  "status": null,
-  "result": null,
-  "git": null,
   "_cli": {
     "state": "api_error",
     "exitCode": 2,

@@ -200,12 +200,11 @@ func TestStatusResponseMarshalSuccess(t *testing.T) {
 func TestStatusResponseMarshalTimeout(t *testing.T) {
 	t.Parallel()
 
-	timeoutErr := errors.New("timeout waiting for run to complete")
 	resp := newTimeoutStatus(&cursor.RunStatusResponse{
 		ID:      "run-1",
 		AgentID: "bc-1",
 		Status:  "RUNNING",
-	}, 12, 180, timeoutErr)
+	}, 12, 180, errTimeout)
 
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -249,8 +248,8 @@ func TestStatusResponseMarshalAPIError(t *testing.T) {
 	if parsed["agentId"] != "bc-1" {
 		t.Fatalf("agentId = %v, want bc-1", parsed["agentId"])
 	}
-	if parsed["status"] != nil {
-		t.Fatalf("status = %v, want null", parsed["status"])
+	if _, ok := parsed["status"]; ok {
+		t.Fatalf("status should be omitted, got %v", parsed["status"])
 	}
 	cli := parsed["_cli"].(map[string]any)
 	if cli["state"] != cliStateAPIError {
