@@ -56,7 +56,7 @@ go build .
 | `run` | API レスポンスをそのまま JSON 出力 |
 | `status` | API レスポンス + `_cli` メタ情報（エージェント向け） |
 
-`status` サブコマンドのみ、他のエージェントがプログラム的に扱いやすいよう CLI 独自の `_cli` フィールドを付与します。`status` / `status --watch` は常に stdout に 1 つの JSON を出力します。
+`status` サブコマンドのみ、他のエージェントがプログラム的に扱いやすいよう CLI 独自の `_cli` フィールドを付与します。`status` / `status --watch` は常に stdout に 1 つの JSON を出力します（`status --help` を除く。ヘルプは stderr に usage を出力し、JSON は出力しません）。
 
 ### `status` の `_cli` フィールド
 
@@ -79,6 +79,8 @@ go build .
 | `config_error` | 3 |
 
 ### 出力例
+
+以下は簡略化した例です。実際の出力には API レスポンス由来の `createdAt` / `updatedAt` などのフィールドも含まれます（値がある場合は `durationMs` なども含まれることがあります）。
 
 正常終了（terminal status に到達）:
 
@@ -119,7 +121,7 @@ go build .
 }
 ```
 
-API エラー:
+API エラー（API レスポンスを取得できないため、`id` / `agentId` / `_cli` のみ出力）:
 
 ```json
 {
@@ -128,7 +130,7 @@ API エラー:
   "_cli": {
     "state": "api_error",
     "exitCode": 2,
-    "pollingCount": 0,
+    "pollingCount": 1,
     "elapsedSeconds": 0,
     "error": "Cursor API error (status=500): internal error"
   }

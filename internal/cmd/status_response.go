@@ -21,7 +21,7 @@ type CLIStatusInfo struct {
 	ExitCode       int     `json:"exitCode"`
 	PollingCount   int     `json:"pollingCount"`
 	ElapsedSeconds int     `json:"elapsedSeconds"`
-	Error          *string `json:"error"`
+	Error          *string `json:"error,omitempty"`
 }
 
 // StatusResponse is the agent-friendly JSON output for the status subcommand.

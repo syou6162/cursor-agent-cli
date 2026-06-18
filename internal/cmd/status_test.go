@@ -195,6 +195,9 @@ func TestStatusResponseMarshalSuccess(t *testing.T) {
 	if cli["pollingCount"] != float64(5) {
 		t.Fatalf("_cli.pollingCount = %v, want 5", cli["pollingCount"])
 	}
+	if _, ok := cli["error"]; ok {
+		t.Fatalf("_cli.error = %v, want omitted on success", cli["error"])
+	}
 }
 
 func TestStatusResponseMarshalTimeout(t *testing.T) {
