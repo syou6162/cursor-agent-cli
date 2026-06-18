@@ -125,11 +125,19 @@ func (c *apiClient) ListModels(ctx context.Context) (*ListModelsResponse, error)
 }
 
 func (c *apiClient) ListAgents(ctx context.Context, limit int) (*ListAgentsResponse, error) {
-	params := url.Values{}
-	params.Set("limit", strconv.Itoa(limit))
+	if limit <= 0 {
+		return nil, fmt.Errorf("limit must be greater than 0")
+	}
 
-	reqURL := c.agentsURL + "?" + params.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	reqURL, err := url.Parse(c.agentsURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid agents URL: %w", err)
+	}
+	q := reqURL.Query()
+	q.Set("limit", strconv.Itoa(limit))
+	reqURL.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}

@@ -278,3 +278,51 @@ func TestListAgentsAPIError(t *testing.T) {
 		t.Fatalf("error = %q, want status=401", err.Error())
 	}
 }
+
+func TestListAgentsInvalidLimit(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient(Config{APIKey: "test-api-key"})
+
+	_, err := client.ListAgents(context.Background(), 0)
+	if err == nil {
+		t.Fatal("ListAgents(0) error = nil, want validation error")
+	}
+	if !strings.Contains(err.Error(), "greater than 0") {
+		t.Fatalf("error = %q, want greater than 0", err.Error())
+	}
+}
+
+func TestListAgentsMergesQueryParams(t *testing.T) {
+	t.Parallel()
+
+	want := ListAgentsResponse{Items: []Agent{{ID: "bc-1", Name: "Agent 1"}}}
+	body, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+
+	var gotLimit string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotLimit = r.URL.Query().Get("limit")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "test-api-key",
+		AgentsURL: server.URL + "/agents?includeArchived=true",
+	})
+
+	got, err := client.ListAgents(context.Background(), 15)
+	if err != nil {
+		t.Fatalf("ListAgents() error = %v", err)
+	}
+	if gotLimit != "15" {
+		t.Fatalf("limit query = %q, want 15", gotLimit)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("ListAgents() = %+v, want one item", got)
+	}
+}

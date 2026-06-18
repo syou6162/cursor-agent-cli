@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -77,8 +78,20 @@ func (r *Root) runList(args []string) int {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	fs.SetOutput(r.stderr)
 	limit := fs.Int("limit", 20, "maximum number of agents to return")
+	fs.Usage = func() {
+		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli list [flags]")
+		fmt.Fprintln(r.stderr)
+		fmt.Fprintln(r.stderr, "Flags:")
+		fs.PrintDefaults()
+	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return ExitSuccess
+		}
 		return r.fail(ExitUsage, err)
+	}
+	if *limit <= 0 {
+		return r.fail(ExitUsage, fmt.Errorf("--limit must be greater than 0, got %d", *limit))
 	}
 
 	client, err := r.apiClient()

@@ -184,3 +184,53 @@ func TestRunListAPIError(t *testing.T) {
 		t.Fatalf("stderr = %q, want API error message", stderr.String())
 	}
 }
+
+func TestRunListHelp(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &stderr}
+
+	if got := root.Run([]string{"list", "--help"}); got != ExitSuccess {
+		t.Fatalf("Run(list --help) = %d, want %d", got, ExitSuccess)
+	}
+	if !strings.Contains(stderr.String(), "Usage: cursor-agent-cli list") {
+		t.Fatalf("stderr = %q, want list usage text", stderr.String())
+	}
+}
+
+func TestRunListInvalidLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		args  []string
+		want  string
+	}{
+		{name: "zero", args: []string{"list", "--limit", "0"}, want: "greater than 0"},
+		{name: "negative", args: []string{"list", "--limit", "-1"}, want: "greater than 0"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var stderr bytes.Buffer
+			root := &Root{
+				stdout: &bytes.Buffer{},
+				stderr: &stderr,
+				clientFactory: func() (cursor.Client, error) {
+					t.Fatal("client should not be called for invalid limit")
+					return nil, nil
+				},
+			}
+
+			if got := root.Run(tt.args); got != ExitUsage {
+				t.Fatalf("Run(%v) = %d, want %d", tt.args, got, ExitUsage)
+			}
+			if !strings.Contains(stderr.String(), tt.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tt.want)
+			}
+		})
+	}
+}
