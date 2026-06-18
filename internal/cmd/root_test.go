@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -9,6 +10,27 @@ import (
 
 	"github.com/syou6162/cursor-agent-cli/internal/cursor"
 )
+
+func parseStatusOutput(t *testing.T, stdout string) map[string]any {
+	t.Helper()
+
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(stdout), &parsed); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v, stdout = %q", err, stdout)
+	}
+	return parsed
+}
+
+func parseStatusCLI(t *testing.T, stdout string) map[string]any {
+	t.Helper()
+
+	parsed := parseStatusOutput(t, stdout)
+	cli, ok := parsed["_cli"].(map[string]any)
+	if !ok {
+		t.Fatalf("_cli missing in %v", parsed)
+	}
+	return cli
+}
 
 func TestRunDefaultHelloWorld(t *testing.T) {
 	t.Parallel()
@@ -585,6 +607,10 @@ func TestRunStatusMissingAPIKey(t *testing.T) {
 	if got := root.Run([]string{"status", "bc-1", "run-1"}); got != ExitConfig {
 		t.Fatalf("Run(status) = %d, want %d", got, ExitConfig)
 	}
+	cli := parseStatusCLI(t, stdout.String())
+	if cli["state"] != cliStateConfigError {
+		t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateConfigError)
+	}
 	if !strings.Contains(stderr.String(), "CURSOR_CLOUD_AGENT_API_KEY") {
 		t.Fatalf("stderr = %q, want missing API key message", stderr.String())
 	}
@@ -625,8 +651,16 @@ func TestRunStatusSuccess(t *testing.T) {
 	if got := root.Run([]string{"status", agentID, runID}); got != ExitSuccess {
 		t.Fatalf("Run(status) = %d, want %d", got, ExitSuccess)
 	}
-	if !strings.Contains(stdout.String(), "FINISHED") {
-		t.Fatalf("stdout = %q, want FINISHED status", stdout.String())
+	parsed := parseStatusOutput(t, stdout.String())
+	if parsed["status"] != "FINISHED" {
+		t.Fatalf("status = %v, want FINISHED", parsed["status"])
+	}
+	cli := parsed["_cli"].(map[string]any)
+	if cli["state"] != cliStateSuccess {
+		t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateSuccess)
+	}
+	if cli["pollingCount"] != float64(1) {
+		t.Fatalf("_cli.pollingCount = %v, want 1", cli["pollingCount"])
 	}
 	if !strings.Contains(stdout.String(), result) {
 		t.Fatalf("stdout = %q, want result text", stdout.String())
@@ -674,11 +708,16 @@ func TestRunStatusWatchPollsUntilTerminal(t *testing.T) {
 	if reader.calls != 2 {
 		t.Fatalf("GetRunStatus calls = %d, want 2", reader.calls)
 	}
-	if strings.Contains(stdout.String(), "RUNNING") {
-		t.Fatalf("stdout = %q, should not contain intermediate RUNNING status", stdout.String())
+	parsed := parseStatusOutput(t, stdout.String())
+	if parsed["status"] != "FINISHED" {
+		t.Fatalf("status = %v, want FINISHED", parsed["status"])
 	}
-	if !strings.Contains(stdout.String(), "FINISHED") {
-		t.Fatalf("stdout = %q, want FINISHED status", stdout.String())
+	cli := parsed["_cli"].(map[string]any)
+	if cli["state"] != cliStateSuccess {
+		t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateSuccess)
+	}
+	if cli["pollingCount"] != float64(2) {
+		t.Fatalf("_cli.pollingCount = %v, want 2", cli["pollingCount"])
 	}
 	if strings.Count(stdout.String(), "\"status\"") != 1 {
 		t.Fatalf("stdout should contain exactly one JSON object, got %q", stdout.String())
@@ -686,14 +725,17 @@ func TestRunStatusWatchPollsUntilTerminal(t *testing.T) {
 }
 
 func TestRunStatusWatchTimeout(t *testing.T) {
+	agentID := "bc-1"
+	runID := "run-1"
 	reader := &stubRunReader{
 		responses: []*cursor.RunStatusResponse{
-			{ID: "run-1", Status: "RUNNING"},
+			{ID: runID, AgentID: agentID, Status: "RUNNING"},
 		},
 	}
+	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	root := &Root{
-		stdout: &bytes.Buffer{},
+		stdout: &stdout,
 		stderr: &stderr,
 		clientFactory: func() (cursor.Client, error) {
 			return newStubClientWithRunReader(reader), nil
@@ -708,8 +750,19 @@ func TestRunStatusWatchTimeout(t *testing.T) {
 	}
 	t.Cleanup(func() { sleepAfter = origSleepAfter })
 
-	if got := root.Run([]string{"status", "bc-1", "run-1", "--watch", "--interval", "0", "--timeout", "1"}); got != ExitError {
+	if got := root.Run([]string{"status", agentID, runID, "--watch", "--interval", "0", "--timeout", "1"}); got != ExitError {
 		t.Fatalf("Run(status --watch --timeout) = %d, want %d", got, ExitError)
+	}
+	parsed := parseStatusOutput(t, stdout.String())
+	if parsed["status"] != "RUNNING" {
+		t.Fatalf("status = %v, want RUNNING", parsed["status"])
+	}
+	cli := parsed["_cli"].(map[string]any)
+	if cli["state"] != cliStateTimeout {
+		t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateTimeout)
+	}
+	if cli["exitCode"] != float64(ExitError) {
+		t.Fatalf("_cli.exitCode = %v, want %d", cli["exitCode"], ExitError)
 	}
 	if !strings.Contains(stderr.String(), "timeout waiting for run to complete") {
 		t.Fatalf("stderr = %q, want timeout message", stderr.String())
@@ -719,9 +772,10 @@ func TestRunStatusWatchTimeout(t *testing.T) {
 func TestRunStatusAPIError(t *testing.T) {
 	t.Parallel()
 
+	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	root := &Root{
-		stdout: &bytes.Buffer{},
+		stdout: &stdout,
 		stderr: &stderr,
 		clientFactory: func() (cursor.Client, error) {
 			return newStubClientWithRunReader(&stubRunReader{
@@ -732,6 +786,20 @@ func TestRunStatusAPIError(t *testing.T) {
 
 	if got := root.Run([]string{"status", "bc-1", "run-1"}); got != ExitAPI {
 		t.Fatalf("Run(status) = %d, want %d", got, ExitAPI)
+	}
+	parsed := parseStatusOutput(t, stdout.String())
+	if parsed["id"] != "run-1" {
+		t.Fatalf("id = %v, want run-1", parsed["id"])
+	}
+	if parsed["agentId"] != "bc-1" {
+		t.Fatalf("agentId = %v, want bc-1", parsed["agentId"])
+	}
+	cli := parsed["_cli"].(map[string]any)
+	if cli["state"] != cliStateAPIError {
+		t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateAPIError)
+	}
+	if cli["pollingCount"] != float64(1) {
+		t.Fatalf("_cli.pollingCount = %v, want 1", cli["pollingCount"])
 	}
 	if !strings.Contains(stderr.String(), "status=500") {
 		t.Fatalf("stderr = %q, want API error message", stderr.String())
@@ -755,9 +823,10 @@ func TestRunStatusHelp(t *testing.T) {
 func TestRunStatusMissingAgentID(t *testing.T) {
 	t.Parallel()
 
+	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	root := &Root{
-		stdout: &bytes.Buffer{},
+		stdout: &stdout,
 		stderr: &stderr,
 		clientFactory: func() (cursor.Client, error) {
 			t.Fatal("client should not be called for missing agent_id")
@@ -768,6 +837,10 @@ func TestRunStatusMissingAgentID(t *testing.T) {
 	if got := root.Run([]string{"status"}); got != ExitUsage {
 		t.Fatalf("Run(status) = %d, want %d", got, ExitUsage)
 	}
+	cli := parseStatusCLI(t, stdout.String())
+	if cli["state"] != cliStateUsageError {
+		t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateUsageError)
+	}
 	if !strings.Contains(stderr.String(), "agent_id is required") {
 		t.Fatalf("stderr = %q, want missing agent_id message", stderr.String())
 	}
@@ -776,9 +849,10 @@ func TestRunStatusMissingAgentID(t *testing.T) {
 func TestRunStatusMissingRunID(t *testing.T) {
 	t.Parallel()
 
+	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	root := &Root{
-		stdout: &bytes.Buffer{},
+		stdout: &stdout,
 		stderr: &stderr,
 		clientFactory: func() (cursor.Client, error) {
 			t.Fatal("client should not be called for missing run_id")
@@ -789,15 +863,20 @@ func TestRunStatusMissingRunID(t *testing.T) {
 	if got := root.Run([]string{"status", "bc-1"}); got != ExitUsage {
 		t.Fatalf("Run(status) = %d, want %d", got, ExitUsage)
 	}
+	cli := parseStatusCLI(t, stdout.String())
+	if cli["state"] != cliStateUsageError {
+		t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateUsageError)
+	}
 	if !strings.Contains(stderr.String(), "run_id is required") {
 		t.Fatalf("stderr = %q, want missing run_id message", stderr.String())
 	}
 }
 
 func TestRunStatusWatchFlagsBeforeArgsRequiresRunID(t *testing.T) {
+	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	root := &Root{
-		stdout: &bytes.Buffer{},
+		stdout: &stdout,
 		stderr: &stderr,
 		clientFactory: func() (cursor.Client, error) {
 			t.Fatal("client should not be called when run_id is missing")
@@ -807,6 +886,10 @@ func TestRunStatusWatchFlagsBeforeArgsRequiresRunID(t *testing.T) {
 
 	if got := root.Run([]string{"status", "--watch", "bc-1"}); got != ExitUsage {
 		t.Fatalf("Run(status --watch bc-1) = %d, want %d", got, ExitUsage)
+	}
+	cli := parseStatusCLI(t, stdout.String())
+	if cli["state"] != cliStateUsageError {
+		t.Fatalf("_cli.state = %v, want %s", cli["state"], cliStateUsageError)
 	}
 	if !strings.Contains(stderr.String(), "run_id is required") {
 		t.Fatalf("stderr = %q, want missing run_id message", stderr.String())

@@ -247,7 +247,7 @@ func (r *Root) runStatus(args []string) int {
 		if errors.Is(err, flag.ErrHelp) {
 			return ExitSuccess
 		}
-		return r.fail(ExitUsage, err)
+		return r.writeStatusResponse(newCLIOnlyStatus(cliStateUsageError, ExitUsage, err))
 	}
 
 	if agentID == "" && fs.NArg() >= 1 {
@@ -261,41 +261,34 @@ func (r *Root) runStatus(args []string) int {
 		}
 	}
 	if agentID == "" {
-		return r.fail(ExitUsage, fmt.Errorf("agent_id is required"))
+		return r.writeStatusResponse(newCLIOnlyStatus(cliStateUsageError, ExitUsage, fmt.Errorf("agent_id is required")))
 	}
 	if runID == "" {
-		return r.fail(ExitUsage, fmt.Errorf("run_id is required"))
+		return r.writeStatusResponse(newCLIOnlyStatus(cliStateUsageError, ExitUsage, fmt.Errorf("run_id is required")))
 	}
 	if *interval < 0 {
-		return r.fail(ExitUsage, fmt.Errorf("--interval must be greater than or equal to 0, got %d", *interval))
+		return r.writeStatusResponse(newCLIOnlyStatus(cliStateUsageError, ExitUsage, fmt.Errorf("--interval must be greater than or equal to 0, got %d", *interval)))
 	}
 	if *timeout < 0 {
-		return r.fail(ExitUsage, fmt.Errorf("--timeout must be greater than or equal to 0, got %d", *timeout))
+		return r.writeStatusResponse(newCLIOnlyStatus(cliStateUsageError, ExitUsage, fmt.Errorf("--timeout must be greater than or equal to 0, got %d", *timeout)))
 	}
 
 	client, err := r.apiClient()
 	if err != nil {
-		return r.fail(ExitConfig, err)
+		return r.writeStatusResponse(newCLIOnlyStatus(cliStateConfigError, ExitConfig, err))
 	}
 
 	ctx := context.Background()
 	intervalDur := time.Duration(*interval) * time.Second
 	timeoutDur := time.Duration(*timeout) * time.Second
 
-	var resp *cursor.RunStatusResponse
+	var outcome statusOutcome
 	if *watch {
-		resp, err = waitForRunStatus(ctx, client, agentID, runID, intervalDur, timeoutDur)
+		outcome = waitForRunStatus(ctx, client, agentID, runID, intervalDur, timeoutDur)
 	} else {
-		resp, err = getRunStatus(ctx, client, agentID, runID)
+		outcome = getRunStatus(ctx, client, agentID, runID)
 	}
-	if err != nil {
-		var apiErr *cursor.APIError
-		if errors.As(err, &apiErr) {
-			return r.fail(ExitAPI, err)
-		}
-		return r.fail(ExitError, err)
-	}
-	return r.writeJSON(resp)
+	return r.writeStatusResponse(statusResponseFromOutcome(agentID, runID, outcome))
 }
 
 func (r *Root) fail(code int, err error) int {
@@ -340,4 +333,18 @@ func (r *Root) writeJSON(v any) int {
 		return ExitError
 	}
 	return ExitSuccess
+}
+
+func (r *Root) writeStatusResponse(resp StatusResponse) int {
+	code := resp.CLI.ExitCode
+	if resp.CLI.Error != nil {
+		fmt.Fprintf(r.stderr, "error: %s\n", *resp.CLI.Error)
+	}
+	enc := json.NewEncoder(r.stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(resp); err != nil {
+		fmt.Fprintf(r.stderr, "error: %v\n", err)
+		return ExitError
+	}
+	return code
 }
