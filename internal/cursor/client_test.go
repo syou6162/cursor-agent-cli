@@ -165,10 +165,6 @@ func (s *spyClient) ListAgents(_ context.Context, limit int) (*ListAgentsRespons
 	return s.agentsResponse, nil
 }
 
-func (s *spyClient) CreateAgent(_ context.Context, _ CreateAgentRequest) (*CreateAgentResponse, error) {
-	panic("unexpected CreateAgent call")
-}
-
 func TestSpyClientListModels(t *testing.T) {
 	t.Parallel()
 
@@ -441,6 +437,149 @@ func TestCreateAgentAPIError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("CreateAgent() error = nil, want API error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %T, want *APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", apiErr.StatusCode)
+	}
+}
+
+func TestCreateAgentAgentBusy(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"agent_busy"}`, http.StatusConflict)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "test-api-key",
+		AgentsURL: server.URL + "/agents",
+	})
+
+	_, err := client.CreateAgent(context.Background(), CreateAgentRequest{
+		Prompt: AgentPrompt{Text: "Add README"},
+	})
+	if err == nil {
+		t.Fatal("CreateAgent() error = nil, want agent busy error")
+	}
+	if !errors.Is(err, ErrAgentBusy) {
+		t.Fatalf("error = %v, want ErrAgentBusy", err)
+	}
+}
+
+func TestCreateRunSuccess(t *testing.T) {
+	t.Parallel()
+
+	agentID := "bc-00000000-0000-0000-0000-000000000001"
+	want := CreateRunResponse{
+		Run: Run{
+			ID:      "run-00000000-0000-0000-0000-000000000002",
+			AgentID: agentID,
+			Status:  "CREATING",
+		},
+	}
+	respBody, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+
+	wantReq := CreateRunRequest{
+		Prompt: AgentPrompt{Text: "Fix the failing test"},
+	}
+	wantReqBody, err := json.Marshal(wantReq)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	var gotAuth string
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/agents/"+agentID+"/runs" {
+			t.Errorf("path = %q, want /agents/%s/runs", r.URL.Path, agentID)
+		}
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %q, want POST", r.Method)
+		}
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("Content-Type = %q, want application/json", r.Header.Get("Content-Type"))
+		}
+		gotAuth = r.Header.Get("Authorization")
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(respBody)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "test-api-key",
+		AgentsURL: server.URL + "/agents",
+	})
+
+	got, err := client.CreateRun(context.Background(), agentID, wantReq)
+	if err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("CreateRun() = %+v, want %+v", got, want)
+	}
+
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("test-api-key:"))
+	if gotAuth != wantAuth {
+		t.Fatalf("Authorization = %q, want %q", gotAuth, wantAuth)
+	}
+	if !reflect.DeepEqual(gotBody, wantReqBody) {
+		t.Fatalf("request body = %s, want %s", gotBody, wantReqBody)
+	}
+}
+
+func TestCreateRunAgentBusy(t *testing.T) {
+	t.Parallel()
+
+	agentID := "bc-00000000-0000-0000-0000-000000000001"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"agent_busy"}`, http.StatusConflict)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "test-api-key",
+		AgentsURL: server.URL + "/agents",
+	})
+
+	_, err := client.CreateRun(context.Background(), agentID, CreateRunRequest{
+		Prompt: AgentPrompt{Text: "Fix the failing test"},
+	})
+	if err == nil {
+		t.Fatal("CreateRun() error = nil, want agent busy error")
+	}
+	if !errors.Is(err, ErrAgentBusy) {
+		t.Fatalf("error = %v, want ErrAgentBusy", err)
+	}
+}
+
+func TestCreateRunAPIError(t *testing.T) {
+	t.Parallel()
+
+	agentID := "bc-00000000-0000-0000-0000-000000000001"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "bad request", http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "bad-key",
+		AgentsURL: server.URL + "/agents",
+	})
+
+	_, err := client.CreateRun(context.Background(), agentID, CreateRunRequest{
+		Prompt: AgentPrompt{Text: "test"},
+	})
+	if err == nil {
+		t.Fatal("CreateRun() error = nil, want API error")
 	}
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {

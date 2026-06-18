@@ -9,18 +9,6 @@ import (
 	"github.com/syou6162/cursor-agent-cli/internal/cursor"
 )
 
-type stubModelReader struct {
-	response *cursor.ListModelsResponse
-	err      error
-}
-
-func (s stubModelReader) ListModels(_ context.Context) (*cursor.ListModelsResponse, error) {
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.response, nil
-}
-
 func TestListModelsSuccess(t *testing.T) {
 	t.Parallel()
 

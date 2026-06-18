@@ -9,20 +9,6 @@ import (
 	"github.com/syou6162/cursor-agent-cli/internal/cursor"
 )
 
-type stubAgentReader struct {
-	response *cursor.ListAgentsResponse
-	err      error
-	limit    int
-}
-
-func (s *stubAgentReader) ListAgents(_ context.Context, limit int) (*cursor.ListAgentsResponse, error) {
-	s.limit = limit
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.response, nil
-}
-
 func TestListAgentsSuccess(t *testing.T) {
 	t.Parallel()
 

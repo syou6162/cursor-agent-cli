@@ -59,6 +59,8 @@ func (r *Root) Run(args []string) int {
 		return r.runList(args[1:])
 	case "create":
 		return r.runCreate(args[1:])
+	case "run":
+		return r.runRun(args[1:])
 	default:
 		return r.runUnknown(args[0])
 	}
@@ -159,6 +161,57 @@ func (r *Root) runCreate(args []string) int {
 	return r.writeJSON(resp)
 }
 
+func (r *Root) runRun(args []string) int {
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs.SetOutput(r.stderr)
+	prompt := fs.String("prompt", "", "modification instruction text (required)")
+	fs.Usage = func() {
+		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli run <agent_id> [flags]")
+		fmt.Fprintln(r.stderr)
+		fmt.Fprintln(r.stderr, "Flags:")
+		fs.PrintDefaults()
+	}
+
+	var agentID string
+	flagArgs := args
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		agentID = strings.TrimSpace(args[0])
+		flagArgs = args[1:]
+	}
+
+	if err := fs.Parse(flagArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return ExitSuccess
+		}
+		return r.fail(ExitUsage, err)
+	}
+
+	if agentID == "" {
+		agentID = strings.TrimSpace(fs.Arg(0))
+	}
+	if agentID == "" {
+		return r.fail(ExitUsage, fmt.Errorf("agent_id is required"))
+	}
+	if strings.TrimSpace(*prompt) == "" {
+		return r.fail(ExitUsage, fmt.Errorf("--prompt is required"))
+	}
+
+	req := cursor.CreateRunRequest{
+		Prompt: cursor.AgentPrompt{Text: *prompt},
+	}
+
+	client, err := r.apiClient()
+	if err != nil {
+		return r.fail(ExitConfig, err)
+	}
+
+	resp, err := createRun(context.Background(), client, agentID, req)
+	if err != nil {
+		return r.fail(ExitAPI, err)
+	}
+	return r.writeJSON(resp)
+}
+
 func (r *Root) fail(code int, err error) int {
 	fmt.Fprintf(r.stderr, "error: %v\n", err)
 	return code
@@ -181,6 +234,7 @@ func (r *Root) runHelp(_ []string) int {
 		fmt.Fprintln(r.stderr, "  models   List available models")
 		fmt.Fprintln(r.stderr, "  list     List agents")
 		fmt.Fprintln(r.stderr, "  create   Create a Cloud Agent")
+		fmt.Fprintln(r.stderr, "  run      Start a new run on an existing agent")
 	}
 	fs.Usage()
 	return ExitSuccess

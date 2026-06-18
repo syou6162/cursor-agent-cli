@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -291,17 +292,17 @@ func TestRunCreateSuccess(t *testing.T) {
 	if !strings.Contains(stdout.String(), "https://cursor.com/agents/bc-00000000-0000-0000-0000-000000000001") {
 		t.Fatalf("stdout = %q, want agent url", stdout.String())
 	}
-	if writer.req.Prompt.Text != "Add README" {
-		t.Fatalf("prompt = %q, want Add README", writer.req.Prompt.Text)
+	autoCreatePR := true
+	branch := "main"
+	wantReq := cursor.CreateAgentRequest{
+		Prompt: cursor.AgentPrompt{Text: "Add README"},
+		Repos: []cursor.AgentRepo{
+			{URL: "https://github.com/org/repo", StartingRef: &branch},
+		},
+		AutoCreatePR: &autoCreatePR,
 	}
-	if len(writer.req.Repos) != 1 || writer.req.Repos[0].URL != "https://github.com/org/repo" {
-		t.Fatalf("repos = %+v, want one repo", writer.req.Repos)
-	}
-	if writer.req.Repos[0].StartingRef == nil || *writer.req.Repos[0].StartingRef != "main" {
-		t.Fatalf("startingRef = %+v, want main", writer.req.Repos[0].StartingRef)
-	}
-	if writer.req.AutoCreatePR == nil || !*writer.req.AutoCreatePR {
-		t.Fatalf("autoCreatePR = %+v, want true", writer.req.AutoCreatePR)
+	if !reflect.DeepEqual(writer.req, wantReq) {
+		t.Fatalf("CreateAgent request = %+v, want %+v", writer.req, wantReq)
 	}
 }
 
@@ -411,6 +412,160 @@ func TestRunCreateMissingPrompt(t *testing.T) {
 
 	if got := root.Run([]string{"create", "--repo", "https://github.com/org/repo"}); got != ExitUsage {
 		t.Fatalf("Run(create) = %d, want %d", got, ExitUsage)
+	}
+	if !strings.Contains(stderr.String(), "--prompt is required") {
+		t.Fatalf("stderr = %q, want missing prompt message", stderr.String())
+	}
+}
+
+func TestRunRunMissingAPIKey(t *testing.T) {
+	t.Setenv("CURSOR_CLOUD_AGENT_API_KEY", "")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	root := NewRoot()
+	root.stdout = &stdout
+	root.stderr = &stderr
+
+	if got := root.Run([]string{"run", "bc-1", "--prompt", "test"}); got != ExitConfig {
+		t.Fatalf("Run(run) = %d, want %d", got, ExitConfig)
+	}
+	if !strings.Contains(stderr.String(), "CURSOR_CLOUD_AGENT_API_KEY") {
+		t.Fatalf("stderr = %q, want missing API key message", stderr.String())
+	}
+}
+
+func TestRunRunSuccess(t *testing.T) {
+	t.Parallel()
+
+	agentID := "bc-00000000-0000-0000-0000-000000000001"
+	writer := &stubRunWriter{
+		response: &cursor.CreateRunResponse{
+			Run: cursor.Run{
+				ID:      "run-00000000-0000-0000-0000-000000000002",
+				AgentID: agentID,
+				Status:  "CREATING",
+			},
+		},
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &stdout,
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithRunWriter(writer), nil
+		},
+	}
+
+	if got := root.Run([]string{"run", agentID, "--prompt", "Fix the failing test"}); got != ExitSuccess {
+		t.Fatalf("Run(run) = %d, want %d", got, ExitSuccess)
+	}
+	if !strings.Contains(stdout.String(), "run-00000000-0000-0000-0000-000000000002") {
+		t.Fatalf("stdout = %q, want run id", stdout.String())
+	}
+	if writer.agentID != agentID {
+		t.Fatalf("agentID = %q, want %q", writer.agentID, agentID)
+	}
+	if writer.req.Prompt.Text != "Fix the failing test" {
+		t.Fatalf("prompt = %q, want Fix the failing test", writer.req.Prompt.Text)
+	}
+}
+
+func TestRunRunAgentBusy(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithRunWriter(&stubRunWriter{
+				err: cursor.ErrAgentBusy,
+			}), nil
+		},
+	}
+
+	if got := root.Run([]string{"run", "bc-1", "--prompt", "Fix the failing test"}); got != ExitAPI {
+		t.Fatalf("Run(run) = %d, want %d", got, ExitAPI)
+	}
+	if !strings.Contains(stderr.String(), "agent_busy") {
+		t.Fatalf("stderr = %q, want agent_busy message", stderr.String())
+	}
+}
+
+func TestRunRunAPIError(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithRunWriter(&stubRunWriter{
+				err: &cursor.APIError{StatusCode: 500, Body: "internal error"},
+			}), nil
+		},
+	}
+
+	if got := root.Run([]string{"run", "bc-1", "--prompt", "Fix the failing test"}); got != ExitAPI {
+		t.Fatalf("Run(run) = %d, want %d", got, ExitAPI)
+	}
+	if !strings.Contains(stderr.String(), "status=500") {
+		t.Fatalf("stderr = %q, want API error message", stderr.String())
+	}
+}
+
+func TestRunRunHelp(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &stderr}
+
+	if got := root.Run([]string{"run", "--help"}); got != ExitSuccess {
+		t.Fatalf("Run(run --help) = %d, want %d", got, ExitSuccess)
+	}
+	if !strings.Contains(stderr.String(), "Usage: cursor-agent-cli run") {
+		t.Fatalf("stderr = %q, want run usage text", stderr.String())
+	}
+}
+
+func TestRunRunMissingAgentID(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			t.Fatal("client should not be called for missing agent_id")
+			return nil, nil
+		},
+	}
+
+	if got := root.Run([]string{"run", "--prompt", "Fix the failing test"}); got != ExitUsage {
+		t.Fatalf("Run(run) = %d, want %d", got, ExitUsage)
+	}
+	if !strings.Contains(stderr.String(), "agent_id is required") {
+		t.Fatalf("stderr = %q, want missing agent_id message", stderr.String())
+	}
+}
+
+func TestRunRunMissingPrompt(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			t.Fatal("client should not be called for missing prompt")
+			return nil, nil
+		},
+	}
+
+	if got := root.Run([]string{"run", "bc-1"}); got != ExitUsage {
+		t.Fatalf("Run(run) = %d, want %d", got, ExitUsage)
 	}
 	if !strings.Contains(stderr.String(), "--prompt is required") {
 		t.Fatalf("stderr = %q, want missing prompt message", stderr.String())
