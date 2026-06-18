@@ -8,6 +8,16 @@ Cursor Cloud Agent API を安全に操作するための Go 製 CLI ツールで
 
 - Go 1.22 以上
 
+## インストール
+
+最新版をインストールする:
+
+```bash
+go install github.com/syou6162/cursor-agent-cli@latest
+```
+
+`$GOPATH/bin`（未設定の場合は `~/go/bin`）に `cursor-agent-cli` が配置されます。PATH に含まれていることを確認してください。
+
 ## ビルド
 
 ```bash
