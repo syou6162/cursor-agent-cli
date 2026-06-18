@@ -4,6 +4,8 @@
 
 Cursor Cloud Agent API を安全に操作するための Go 製 CLI ツールです。サブコマンド単位で API 操作を切り出し、JSON 形式で結果を出力します。
 
+Hello!
+
 ## 要件
 
 - Go 1.22 以上
