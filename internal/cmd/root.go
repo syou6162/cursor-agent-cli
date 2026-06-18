@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/syou6162/cursor-agent-cli/internal/cursor"
 )
@@ -56,6 +57,8 @@ func (r *Root) Run(args []string) int {
 		return r.runModels(args[1:])
 	case "list":
 		return r.runList(args[1:])
+	case "create":
+		return r.runCreate(args[1:])
 	default:
 		return r.runUnknown(args[0])
 	}
@@ -106,6 +109,56 @@ func (r *Root) runList(args []string) int {
 	return r.writeJSON(resp)
 }
 
+func (r *Root) runCreate(args []string) int {
+	fs := flag.NewFlagSet("create", flag.ContinueOnError)
+	fs.SetOutput(r.stderr)
+	repo := fs.String("repo", "", "GitHub repository URL (required)")
+	prompt := fs.String("prompt", "", "task prompt for the agent (required)")
+	branch := fs.String("branch", "main", "branch name or commit SHA to use as the starting point")
+	fs.Usage = func() {
+		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli create [flags]")
+		fmt.Fprintln(r.stderr)
+		fmt.Fprintln(r.stderr, "Flags:")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return ExitSuccess
+		}
+		return r.fail(ExitUsage, err)
+	}
+	if strings.TrimSpace(*repo) == "" {
+		return r.fail(ExitUsage, fmt.Errorf("--repo is required"))
+	}
+	if strings.TrimSpace(*prompt) == "" {
+		return r.fail(ExitUsage, fmt.Errorf("--prompt is required"))
+	}
+
+	branchRef := strings.TrimSpace(*branch)
+	autoCreatePR := true
+	req := cursor.CreateAgentRequest{
+		Prompt: cursor.AgentPrompt{Text: *prompt},
+		Repos: []cursor.AgentRepo{
+			{
+				URL:         strings.TrimSpace(*repo),
+				StartingRef: &branchRef,
+			},
+		},
+		AutoCreatePR: &autoCreatePR,
+	}
+
+	client, err := r.apiClient()
+	if err != nil {
+		return r.fail(ExitConfig, err)
+	}
+
+	resp, err := createAgent(context.Background(), client, req)
+	if err != nil {
+		return r.fail(ExitAPI, err)
+	}
+	return r.writeJSON(resp)
+}
+
 func (r *Root) fail(code int, err error) int {
 	fmt.Fprintf(r.stderr, "error: %v\n", err)
 	return code
@@ -127,6 +180,7 @@ func (r *Root) runHelp(_ []string) int {
 		fmt.Fprintln(r.stderr, "  help     Show usage information")
 		fmt.Fprintln(r.stderr, "  models   List available models")
 		fmt.Fprintln(r.stderr, "  list     List agents")
+		fmt.Fprintln(r.stderr, "  create   Create a Cloud Agent")
 	}
 	fs.Usage()
 	return ExitSuccess
