@@ -313,8 +313,10 @@ func TestListAgentsMergesQueryParams(t *testing.T) {
 	}
 
 	var gotLimit string
+	var gotIncludeArchived string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotLimit = r.URL.Query().Get("limit")
+		gotIncludeArchived = r.URL.Query().Get("includeArchived")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(body)
 	}))
@@ -331,6 +333,9 @@ func TestListAgentsMergesQueryParams(t *testing.T) {
 	}
 	if gotLimit != "15" {
 		t.Fatalf("limit query = %q, want 15", gotLimit)
+	}
+	if gotIncludeArchived != "true" {
+		t.Fatalf("includeArchived query = %q, want true", gotIncludeArchived)
 	}
 	if len(got.Items) != 1 {
 		t.Fatalf("ListAgents() = %+v, want one item", got)
