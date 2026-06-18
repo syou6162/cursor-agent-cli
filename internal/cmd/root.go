@@ -11,8 +11,11 @@ import (
 const (
 	ExitSuccess = 0
 	ExitError   = 1
-	ExitUsage   = 2
+	ExitAPI     = 2
 	ExitConfig  = 3
+
+	// ExitUsage is an alias for ExitAPI for unknown commands.
+	ExitUsage = ExitAPI
 )
 
 // Root is the top-level command dispatcher for cursor-agent-cli.
@@ -38,6 +41,8 @@ func (r *Root) Run(args []string) int {
 	switch args[0] {
 	case "help", "-h", "--help":
 		return r.runHelp(args[1:])
+	case "models":
+		return NewModels(r.stdout, r.stderr).Run(args[1:])
 	default:
 		return r.runUnknown(args[0])
 	}
@@ -56,7 +61,8 @@ func (r *Root) runHelp(_ []string) int {
 		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli [command]")
 		fmt.Fprintln(r.stderr)
 		fmt.Fprintln(r.stderr, "Commands:")
-		fmt.Fprintln(r.stderr, "  help    Show usage information")
+		fmt.Fprintln(r.stderr, "  help     Show usage information")
+		fmt.Fprintln(r.stderr, "  models   List available models")
 	}
 	fs.Usage()
 	return ExitSuccess
