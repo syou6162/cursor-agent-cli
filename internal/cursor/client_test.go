@@ -165,14 +165,6 @@ func (s *spyClient) ListAgents(_ context.Context, limit int) (*ListAgentsRespons
 	return s.agentsResponse, nil
 }
 
-func (s *spyClient) CreateAgent(_ context.Context, _ CreateAgentRequest) (*CreateAgentResponse, error) {
-	panic("unexpected CreateAgent call")
-}
-
-func (s *spyClient) CreateRun(_ context.Context, _ string, _ CreateRunRequest) (*CreateRunResponse, error) {
-	panic("unexpected CreateRun call")
-}
-
 func TestSpyClientListModels(t *testing.T) {
 	t.Parallel()
 

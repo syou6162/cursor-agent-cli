@@ -9,34 +9,6 @@ import (
 	"github.com/syou6162/cursor-agent-cli/internal/cursor"
 )
 
-type spyRunClient struct {
-	createRunAgentID string
-	createRunReq     cursor.CreateRunRequest
-	createRunResp    *cursor.CreateRunResponse
-	err              error
-}
-
-func (s *spyRunClient) ListModels(context.Context) (*cursor.ListModelsResponse, error) {
-	return nil, nil
-}
-
-func (s *spyRunClient) ListAgents(context.Context, int) (*cursor.ListAgentsResponse, error) {
-	return nil, nil
-}
-
-func (s *spyRunClient) CreateAgent(context.Context, cursor.CreateAgentRequest) (*cursor.CreateAgentResponse, error) {
-	return nil, nil
-}
-
-func (s *spyRunClient) CreateRun(_ context.Context, agentID string, req cursor.CreateRunRequest) (*cursor.CreateRunResponse, error) {
-	s.createRunAgentID = agentID
-	s.createRunReq = req
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.createRunResp, nil
-}
-
 func TestCreateRunSuccess(t *testing.T) {
 	t.Parallel()
 
@@ -48,20 +20,20 @@ func TestCreateRunSuccess(t *testing.T) {
 			Status:  "CREATING",
 		},
 	}
-	spy := &spyRunClient{createRunResp: want}
+	writer := &stubRunWriter{response: want}
 	req := cursor.CreateRunRequest{
 		Prompt: cursor.AgentPrompt{Text: "Fix the failing test"},
 	}
 
-	got, err := createRun(context.Background(), spy, agentID, req)
+	got, err := createRun(context.Background(), newStubClientWithRunWriter(writer), agentID, req)
 	if err != nil {
 		t.Fatalf("createRun() error = %v", err)
 	}
-	if spy.createRunAgentID != agentID {
-		t.Fatalf("CreateRun agentID = %q, want %q", spy.createRunAgentID, agentID)
+	if writer.agentID != agentID {
+		t.Fatalf("CreateRun agentID = %q, want %q", writer.agentID, agentID)
 	}
-	if !reflect.DeepEqual(spy.createRunReq, req) {
-		t.Fatalf("CreateRun request = %+v, want %+v", spy.createRunReq, req)
+	if !reflect.DeepEqual(writer.req, req) {
+		t.Fatalf("CreateRun request = %+v, want %+v", writer.req, req)
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("createRun() = %+v, want %+v", got, want)
@@ -71,12 +43,12 @@ func TestCreateRunSuccess(t *testing.T) {
 func TestCreateRunAgentBusy(t *testing.T) {
 	t.Parallel()
 
-	spy := &spyRunClient{err: cursor.ErrAgentBusy}
+	writer := &stubRunWriter{err: cursor.ErrAgentBusy}
 	req := cursor.CreateRunRequest{
 		Prompt: cursor.AgentPrompt{Text: "Fix the failing test"},
 	}
 
-	_, err := createRun(context.Background(), spy, "bc-00000000-0000-0000-0000-000000000001", req)
+	_, err := createRun(context.Background(), newStubClientWithRunWriter(writer), "bc-00000000-0000-0000-0000-000000000001", req)
 	if err == nil {
 		t.Fatal("createRun() error = nil, want agent busy error")
 	}
@@ -88,14 +60,14 @@ func TestCreateRunAgentBusy(t *testing.T) {
 func TestCreateRunAPIError(t *testing.T) {
 	t.Parallel()
 
-	spy := &spyRunClient{
+	writer := &stubRunWriter{
 		err: &cursor.APIError{StatusCode: 500, Body: "internal error"},
 	}
 	req := cursor.CreateRunRequest{
 		Prompt: cursor.AgentPrompt{Text: "Fix the failing test"},
 	}
 
-	_, err := createRun(context.Background(), spy, "bc-00000000-0000-0000-0000-000000000001", req)
+	_, err := createRun(context.Background(), newStubClientWithRunWriter(writer), "bc-00000000-0000-0000-0000-000000000001", req)
 	if err == nil {
 		t.Fatal("createRun() error = nil, want API error")
 	}

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"bytes"
-	"context"
 	"strings"
 	"testing"
 
@@ -416,22 +415,6 @@ func TestRunCreateMissingPrompt(t *testing.T) {
 	if !strings.Contains(stderr.String(), "--prompt is required") {
 		t.Fatalf("stderr = %q, want missing prompt message", stderr.String())
 	}
-}
-
-type stubRunWriter struct {
-	agentID  string
-	req      cursor.CreateRunRequest
-	response *cursor.CreateRunResponse
-	err      error
-}
-
-func (s *stubRunWriter) CreateRun(_ context.Context, agentID string, req cursor.CreateRunRequest) (*cursor.CreateRunResponse, error) {
-	s.agentID = agentID
-	s.req = req
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.response, nil
 }
 
 func TestRunRunMissingAPIKey(t *testing.T) {
