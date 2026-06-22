@@ -10,3 +10,14 @@ linters:
     - ineffassign
     - staticcheck
     - unused
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+  exclusions:
+    rules:
+      - linters:
+          - errcheck
+        source: "defer .*\\.Close\\(\\)"

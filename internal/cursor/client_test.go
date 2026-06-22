@@ -783,7 +783,7 @@ func TestStreamRunSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StreamRun() error = %v", err)
 	}
-	defer func() { _ = stream.Close() }()
+	defer stream.Close()
 
 	evt1, err := stream.Next()
 	if err != nil {
