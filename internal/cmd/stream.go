@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 
 	"github.com/syou6162/cursor-agent-cli/internal/cursor"
@@ -17,20 +18,27 @@ type streamEvent struct {
 
 // streamRun connects to the SSE stream and writes NDJSON to w.
 // It returns the exit code.
-func streamRun(ctx context.Context, client cursor.Client, agentID, runID string, w io.Writer) int {
+func streamRun(ctx context.Context, client cursor.Client, agentID, runID string, w io.Writer, stderr io.Writer) int {
 	stream, err := client.StreamRun(ctx, agentID, runID)
 	if err != nil {
+		fmt.Fprintf(stderr, "Error: stream connection failed: %v\n", err)
 		return ExitAPI
 	}
 	defer stream.Close()
 
 	enc := json.NewEncoder(w)
+	sawTerminal := false
 	for {
 		evt, err := stream.Next()
 		if err != nil {
 			if err == io.EOF {
-				return ExitSuccess
+				if sawTerminal {
+					return ExitSuccess
+				}
+				fmt.Fprintln(stderr, "Error: stream ended unexpectedly without a terminal event")
+				return ExitAPI
 			}
+			fmt.Fprintf(stderr, "Error: stream read failed: %v\n", err)
 			return ExitAPI
 		}
 
@@ -46,9 +54,13 @@ func streamRun(ctx context.Context, client cursor.Client, agentID, runID string,
 			out.Data = json.RawMessage(escaped)
 		}
 
-		_ = enc.Encode(out)
+		if err := enc.Encode(out); err != nil {
+			fmt.Fprintf(stderr, "Error: write failed: %v\n", err)
+			return ExitError
+		}
 
 		if evt.Event == "done" || evt.Event == "error" {
+			sawTerminal = true
 			if evt.Event == "error" {
 				return ExitAPI
 			}

@@ -1209,6 +1209,57 @@ func TestRunStreamErrorEvent(t *testing.T) {
 	}
 }
 
+func TestRunStreamUnexpectedEOF(t *testing.T) {
+	t.Parallel()
+
+	reader := &stubStreamReader{
+		stream: &stubSSEStream{
+			events: []cursor.SSEEvent{
+				{Event: "status", Data: `{"runId":"run-1","status":"RUNNING"}`},
+				{Event: "assistant", Data: `{"text":"hello"}`},
+			},
+		},
+	}
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithStreamReader(reader), nil
+		},
+	}
+
+	if got := root.Run([]string{"stream", "bc-1", "run-1"}); got != ExitAPI {
+		t.Fatalf("Run(stream unexpected EOF) = %d, want %d", got, ExitAPI)
+	}
+	if !strings.Contains(stderr.String(), "stream ended unexpectedly") {
+		t.Fatalf("stderr = %q, want unexpected EOF message", stderr.String())
+	}
+}
+
+func TestRunStreamConnectionError(t *testing.T) {
+	t.Parallel()
+
+	reader := &stubStreamReader{
+		err: &cursor.APIError{StatusCode: 404, Body: "not found"},
+	}
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithStreamReader(reader), nil
+		},
+	}
+
+	if got := root.Run([]string{"stream", "bc-1", "run-1"}); got != ExitAPI {
+		t.Fatalf("Run(stream conn error) = %d, want %d", got, ExitAPI)
+	}
+	if !strings.Contains(stderr.String(), "stream connection failed") {
+		t.Fatalf("stderr = %q, want connection error message", stderr.String())
+	}
+}
+
 func TestRunStreamHelp(t *testing.T) {
 	t.Parallel()
 

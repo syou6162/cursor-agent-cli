@@ -350,7 +350,7 @@ func (r *Root) runStream(args []string) int {
 		return r.fail(ExitConfig, err)
 	}
 
-	return streamRun(context.Background(), client, agentID, runID, r.stdout)
+	return streamRun(context.Background(), client, agentID, runID, r.stdout, r.stderr)
 }
 
 func (r *Root) runCancel(args []string) int {
