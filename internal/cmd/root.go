@@ -142,7 +142,8 @@ func (r *Root) runCreate(args []string) int {
 	fs.Usage = func() {
 		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli create [flags]")
 		fmt.Fprintln(r.stderr)
-		fmt.Fprintln(r.stderr, "Prompt can also be provided via stdin (piped input).")
+		fmt.Fprintln(r.stderr, "If --prompt is omitted, the prompt is read from stdin (piped input).")
+		fmt.Fprintln(r.stderr, "When both are provided, --prompt takes priority.")
 		fmt.Fprintln(r.stderr)
 		fmt.Fprintln(r.stderr, "Flags:")
 		fs.PrintDefaults()
@@ -193,7 +194,8 @@ func (r *Root) runRun(args []string) int {
 	fs.Usage = func() {
 		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli run <agent_id> [flags]")
 		fmt.Fprintln(r.stderr)
-		fmt.Fprintln(r.stderr, "Prompt can also be provided via stdin (piped input).")
+		fmt.Fprintln(r.stderr, "If --prompt is omitted, the prompt is read from stdin (piped input).")
+		fmt.Fprintln(r.stderr, "When both are provided, --prompt takes priority.")
 		fmt.Fprintln(r.stderr)
 		fmt.Fprintln(r.stderr, "Flags:")
 		fs.PrintDefaults()

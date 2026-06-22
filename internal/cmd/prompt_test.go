@@ -82,6 +82,18 @@ func TestResolvePromptMissingWhenNilStdin(t *testing.T) {
 	}
 }
 
+func TestResolvePromptNilIsTerminalUsesDefault(t *testing.T) {
+	t.Parallel()
+
+	got, err := resolvePrompt("", strings.NewReader("prompt from stdin"), nil)
+	if err != nil {
+		t.Fatalf("resolvePrompt() error = %v", err)
+	}
+	if got != "prompt from stdin" {
+		t.Fatalf("resolvePrompt() = %q, want %q", got, "prompt from stdin")
+	}
+}
+
 func TestDefaultIsTerminalNonFileReaderIsPipe(t *testing.T) {
 	t.Parallel()
 

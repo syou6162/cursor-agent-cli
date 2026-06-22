@@ -13,7 +13,11 @@ func resolvePrompt(flagValue string, stdin io.Reader, isTerminal func(io.Reader)
 	if strings.TrimSpace(flagValue) != "" {
 		return flagValue, nil
 	}
-	if stdin == nil || isTerminal(stdin) {
+	check := isTerminal
+	if check == nil {
+		check = defaultIsTerminal
+	}
+	if stdin == nil || check(stdin) {
 		return "", fmt.Errorf("--prompt is required")
 	}
 	data, err := io.ReadAll(stdin)
