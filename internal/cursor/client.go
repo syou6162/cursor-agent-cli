@@ -50,6 +50,22 @@ type RunReader interface {
 	GetRunStatus(ctx context.Context, agentID, runID string) (*RunStatusResponse, error)
 }
 
+// RunCanceller groups cancel operations for agent runs.
+type RunCanceller interface {
+	CancelRun(ctx context.Context, agentID, runID string) (*CancelRunResponse, error)
+}
+
+// RunStreamer groups SSE streaming operations for agent runs.
+type RunStreamer interface {
+	StreamRun(ctx context.Context, agentID, runID string) (SSEStream, error)
+}
+
+// SSEStream represents an open SSE connection that yields events.
+type SSEStream interface {
+	Next() (SSEEvent, error)
+	Close() error
+}
+
 // Client defines the capabilities needed by CLI commands.
 type Client interface {
 	ModelReader
@@ -57,6 +73,8 @@ type Client interface {
 	AgentWriter
 	RunWriter
 	RunReader
+	RunCanceller
+	RunStreamer
 }
 
 // Config holds settings for the API client.
@@ -125,6 +143,8 @@ var _ AgentReader = (*apiClient)(nil)
 var _ AgentWriter = (*apiClient)(nil)
 var _ RunWriter = (*apiClient)(nil)
 var _ RunReader = (*apiClient)(nil)
+var _ RunCanceller = (*apiClient)(nil)
+var _ RunStreamer = (*apiClient)(nil)
 var _ Client = (*apiClient)(nil)
 
 func (c *apiClient) ListModels(ctx context.Context) (*ListModelsResponse, error) {
@@ -268,6 +288,54 @@ func (c *apiClient) sendAndParseAPIError(req *http.Request) (*http.Response, err
 		return nil, &APIError{StatusCode: resp.StatusCode, Body: truncated}
 	}
 	return resp, nil
+}
+
+func (c *apiClient) CancelRun(ctx context.Context, agentID, runID string) (*CancelRunResponse, error) {
+	cancelURL := strings.TrimRight(c.agentsURL, "/") + "/" + url.PathEscape(agentID) + "/runs/" + url.PathEscape(runID) + "/cancel"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cancelURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(c.apiKey(), "")
+
+	resp, err := c.sendAndParseAPIError(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var data CancelRunResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("Cursor API response parse failed: %w", err)
+	}
+	return &data, nil
+}
+
+func (c *apiClient) StreamRun(ctx context.Context, agentID, runID string) (SSEStream, error) {
+	streamURL := strings.TrimRight(c.agentsURL, "/") + "/" + url.PathEscape(agentID) + "/runs/" + url.PathEscape(runID) + "/stream"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, streamURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	req.SetBasicAuth(c.apiKey(), "")
+
+	// SSE streams are long-lived; use a client without a response timeout.
+	streamClient := &http.Client{}
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("Cursor API request failed: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+		truncated := truncateBody(string(body), maxErrorBodyDisplay)
+		if readErr != nil {
+			return nil, fmt.Errorf("Cursor API error (status=%d): body read failed: %w", resp.StatusCode, readErr)
+		}
+		return nil, &APIError{StatusCode: resp.StatusCode, Body: truncated}
+	}
+	return newSSEStreamReader(resp.Body), nil
 }
 
 func truncateBody(body string, maxLen int) string {

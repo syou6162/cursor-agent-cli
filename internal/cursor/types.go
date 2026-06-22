@@ -147,3 +147,15 @@ type RunGitBranch struct {
 	Branch  *string `json:"branch,omitempty"`
 	PRURL   *string `json:"prUrl,omitempty"`
 }
+
+// CancelRunResponse is the response body for POST /v1/agents/{agent_id}/runs/{run_id}/cancel.
+type CancelRunResponse struct {
+	ID string `json:"id"`
+}
+
+// SSEEvent represents a single Server-Sent Event from the run stream.
+type SSEEvent struct {
+	Event string `json:"event"`
+	Data  string `json:"data"`
+	ID    string `json:"id,omitempty"`
+}

@@ -64,6 +64,10 @@ func (r *Root) Run(args []string) int {
 		return r.runRun(args[1:])
 	case "status":
 		return r.runStatus(args[1:])
+	case "stream":
+		return r.runStream(args[1:])
+	case "cancel":
+		return r.runCancel(args[1:])
 	default:
 		return r.runUnknown(args[0])
 	}
@@ -307,6 +311,94 @@ func (r *Root) runHello() int {
 	})
 }
 
+func (r *Root) runStream(args []string) int {
+	fs := flag.NewFlagSet("stream", flag.ContinueOnError)
+	fs.SetOutput(r.stderr)
+	fs.Usage = func() {
+		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli stream <agent_id> <run_id>")
+		fmt.Fprintln(r.stderr)
+		fmt.Fprintln(r.stderr, "Stream SSE events from a run as NDJSON")
+	}
+
+	var agentID, runID string
+	flagArgs := args
+	if len(flagArgs) > 0 && !strings.HasPrefix(flagArgs[0], "-") {
+		agentID = strings.TrimSpace(flagArgs[0])
+		flagArgs = flagArgs[1:]
+	}
+	if len(flagArgs) > 0 && !strings.HasPrefix(flagArgs[0], "-") {
+		runID = strings.TrimSpace(flagArgs[0])
+		flagArgs = flagArgs[1:]
+	}
+
+	if err := fs.Parse(flagArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return ExitSuccess
+		}
+		return r.fail(ExitUsage, err)
+	}
+
+	if agentID == "" {
+		return r.fail(ExitUsage, fmt.Errorf("agent_id is required"))
+	}
+	if runID == "" {
+		return r.fail(ExitUsage, fmt.Errorf("run_id is required"))
+	}
+
+	client, err := r.apiClient()
+	if err != nil {
+		return r.fail(ExitConfig, err)
+	}
+
+	return streamRun(context.Background(), client, agentID, runID, r.stdout)
+}
+
+func (r *Root) runCancel(args []string) int {
+	fs := flag.NewFlagSet("cancel", flag.ContinueOnError)
+	fs.SetOutput(r.stderr)
+	fs.Usage = func() {
+		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli cancel <agent_id> <run_id>")
+		fmt.Fprintln(r.stderr)
+		fmt.Fprintln(r.stderr, "Cancel an active run")
+	}
+
+	var agentID, runID string
+	flagArgs := args
+	if len(flagArgs) > 0 && !strings.HasPrefix(flagArgs[0], "-") {
+		agentID = strings.TrimSpace(flagArgs[0])
+		flagArgs = flagArgs[1:]
+	}
+	if len(flagArgs) > 0 && !strings.HasPrefix(flagArgs[0], "-") {
+		runID = strings.TrimSpace(flagArgs[0])
+		flagArgs = flagArgs[1:]
+	}
+
+	if err := fs.Parse(flagArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return ExitSuccess
+		}
+		return r.fail(ExitUsage, err)
+	}
+
+	if agentID == "" {
+		return r.fail(ExitUsage, fmt.Errorf("agent_id is required"))
+	}
+	if runID == "" {
+		return r.fail(ExitUsage, fmt.Errorf("run_id is required"))
+	}
+
+	client, err := r.apiClient()
+	if err != nil {
+		return r.fail(ExitConfig, err)
+	}
+
+	resp, err := cancelRun(context.Background(), client, agentID, runID)
+	if err != nil {
+		return r.fail(ExitAPI, err)
+	}
+	return r.writeJSON(resp)
+}
+
 func (r *Root) runHelp(_ []string) int {
 	fs := flag.NewFlagSet("cursor-agent-cli", flag.ContinueOnError)
 	fs.SetOutput(r.stderr)
@@ -320,6 +412,8 @@ func (r *Root) runHelp(_ []string) int {
 		fmt.Fprintln(r.stderr, "  create   Create a Cloud Agent")
 		fmt.Fprintln(r.stderr, "  run      Start a new run on an existing agent")
 		fmt.Fprintln(r.stderr, "  status   Get the status of an agent run")
+		fmt.Fprintln(r.stderr, "  stream   Stream SSE events from a run as NDJSON")
+		fmt.Fprintln(r.stderr, "  cancel   Cancel an active run")
 	}
 	fs.Usage()
 	return ExitSuccess
