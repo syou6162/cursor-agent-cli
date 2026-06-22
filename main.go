@@ -1,3 +1,4 @@
+// Go version: 1.22
 package main
 
 import (
