@@ -21,10 +21,10 @@ type streamEvent struct {
 func streamRun(ctx context.Context, client cursor.Client, agentID, runID string, w io.Writer, stderr io.Writer) int {
 	stream, err := client.StreamRun(ctx, agentID, runID)
 	if err != nil {
-		fmt.Fprintf(stderr, "Error: stream connection failed: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "Error: stream connection failed: %v\n", err)
 		return ExitAPI
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	enc := json.NewEncoder(w)
 	sawTerminal := false
@@ -35,10 +35,10 @@ func streamRun(ctx context.Context, client cursor.Client, agentID, runID string,
 				if sawTerminal {
 					return ExitSuccess
 				}
-				fmt.Fprintln(stderr, "Error: stream ended unexpectedly without a terminal event")
+				_, _ = fmt.Fprintln(stderr, "Error: stream ended unexpectedly without a terminal event")
 				return ExitAPI
 			}
-			fmt.Fprintf(stderr, "Error: stream read failed: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "Error: stream read failed: %v\n", err)
 			return ExitAPI
 		}
 
@@ -55,7 +55,7 @@ func streamRun(ctx context.Context, client cursor.Client, agentID, runID string,
 		}
 
 		if err := enc.Encode(out); err != nil {
-			fmt.Fprintf(stderr, "Error: write failed: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "Error: write failed: %v\n", err)
 			return ExitError
 		}
 
