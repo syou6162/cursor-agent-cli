@@ -26,6 +26,8 @@ const (
 type Root struct {
 	stdout        io.Writer
 	stderr        io.Writer
+	stdin         io.Reader
+	isTerminal    func(io.Reader) bool
 	clientFactory func() (cursor.Client, error)
 }
 
@@ -34,8 +36,16 @@ func NewRoot() *Root {
 	return &Root{
 		stdout:        os.Stdout,
 		stderr:        os.Stderr,
+		stdin:         os.Stdin,
 		clientFactory: cursor.ClientFromEnv,
 	}
+}
+
+func (r *Root) terminalCheck(reader io.Reader) bool {
+	if r.isTerminal != nil {
+		return r.isTerminal(reader)
+	}
+	return defaultIsTerminal(reader)
 }
 
 func (r *Root) apiClient() (cursor.Client, error) {
@@ -132,6 +142,9 @@ func (r *Root) runCreate(args []string) int {
 	fs.Usage = func() {
 		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli create [flags]")
 		fmt.Fprintln(r.stderr)
+		fmt.Fprintln(r.stderr, "If --prompt is omitted, the prompt is read from stdin (piped input).")
+		fmt.Fprintln(r.stderr, "When both are provided, --prompt takes priority.")
+		fmt.Fprintln(r.stderr)
 		fmt.Fprintln(r.stderr, "Flags:")
 		fs.PrintDefaults()
 	}
@@ -144,14 +157,15 @@ func (r *Root) runCreate(args []string) int {
 	if strings.TrimSpace(*repo) == "" {
 		return r.fail(ExitUsage, fmt.Errorf("--repo is required"))
 	}
-	if strings.TrimSpace(*prompt) == "" {
-		return r.fail(ExitUsage, fmt.Errorf("--prompt is required"))
+	resolvedPrompt, err := resolvePrompt(*prompt, r.stdin, r.terminalCheck)
+	if err != nil {
+		return r.fail(ExitUsage, err)
 	}
 
 	branchRef := strings.TrimSpace(*branch)
 	autoCreatePR := true
 	req := cursor.CreateAgentRequest{
-		Prompt: cursor.AgentPrompt{Text: *prompt},
+		Prompt: cursor.AgentPrompt{Text: resolvedPrompt},
 		Repos: []cursor.AgentRepo{
 			{
 				URL:         strings.TrimSpace(*repo),
@@ -180,6 +194,9 @@ func (r *Root) runRun(args []string) int {
 	fs.Usage = func() {
 		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli run <agent_id> [flags]")
 		fmt.Fprintln(r.stderr)
+		fmt.Fprintln(r.stderr, "If --prompt is omitted, the prompt is read from stdin (piped input).")
+		fmt.Fprintln(r.stderr, "When both are provided, --prompt takes priority.")
+		fmt.Fprintln(r.stderr)
 		fmt.Fprintln(r.stderr, "Flags:")
 		fs.PrintDefaults()
 	}
@@ -204,12 +221,13 @@ func (r *Root) runRun(args []string) int {
 	if agentID == "" {
 		return r.fail(ExitUsage, fmt.Errorf("agent_id is required"))
 	}
-	if strings.TrimSpace(*prompt) == "" {
-		return r.fail(ExitUsage, fmt.Errorf("--prompt is required"))
+	resolvedPrompt, err := resolvePrompt(*prompt, r.stdin, r.terminalCheck)
+	if err != nil {
+		return r.fail(ExitUsage, err)
 	}
 
 	req := cursor.CreateRunRequest{
-		Prompt: cursor.AgentPrompt{Text: *prompt},
+		Prompt: cursor.AgentPrompt{Text: resolvedPrompt},
 	}
 
 	client, err := r.apiClient()
