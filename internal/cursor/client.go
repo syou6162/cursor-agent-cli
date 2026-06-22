@@ -158,7 +158,7 @@ func (c *apiClient) ListModels(ctx context.Context) (*ListModelsResponse, error)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer resp.Body.Close()
 
 	var data ListModelsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
@@ -190,7 +190,7 @@ func (c *apiClient) ListAgents(ctx context.Context, limit int) (*ListAgentsRespo
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer resp.Body.Close()
 
 	var data ListAgentsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
@@ -211,7 +211,7 @@ func (c *apiClient) GetRunStatus(ctx context.Context, agentID, runID string) (*R
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer resp.Body.Close()
 
 	var data RunStatusResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
@@ -230,7 +230,7 @@ func (c *apiClient) CreateRun(ctx context.Context, agentID string, req CreateRun
 		}
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer resp.Body.Close()
 
 	var data CreateRunResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
@@ -248,7 +248,7 @@ func (c *apiClient) CreateAgent(ctx context.Context, req CreateAgentRequest) (*C
 		}
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer resp.Body.Close()
 
 	var data CreateAgentResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
@@ -279,7 +279,7 @@ func (c *apiClient) sendAndParseAPIError(req *http.Request) (*http.Response, err
 		return nil, fmt.Errorf("cursor API request failed: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer func() { _ = resp.Body.Close() }()
+		defer resp.Body.Close()
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		truncated := truncateBody(string(body), maxErrorBodyDisplay)
 		if readErr != nil {
@@ -302,7 +302,7 @@ func (c *apiClient) CancelRun(ctx context.Context, agentID, runID string) (*Canc
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer resp.Body.Close()
 
 	var data CancelRunResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
@@ -328,7 +328,7 @@ func (c *apiClient) StreamRun(ctx context.Context, agentID, runID string) (SSESt
 		return nil, fmt.Errorf("cursor API request failed: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer func() { _ = resp.Body.Close() }()
+		defer resp.Body.Close()
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		truncated := truncateBody(string(body), maxErrorBodyDisplay)
 		if readErr != nil {
