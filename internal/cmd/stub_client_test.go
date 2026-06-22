@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"io"
 
 	"github.com/syou6162/cursor-agent-cli/internal/cursor"
 )
@@ -15,6 +16,8 @@ type stubClient struct {
 	createAgent   func(context.Context, cursor.CreateAgentRequest) (*cursor.CreateAgentResponse, error)
 	createRun     func(context.Context, string, cursor.CreateRunRequest) (*cursor.CreateRunResponse, error)
 	getRunStatus  func(context.Context, string, string) (*cursor.RunStatusResponse, error)
+	cancelRun     func(context.Context, string, string) (*cursor.CancelRunResponse, error)
+	streamRun     func(context.Context, string, string) (cursor.SSEStream, error)
 }
 
 func (s stubClient) ListModels(ctx context.Context) (*cursor.ListModelsResponse, error) {
@@ -50,6 +53,20 @@ func (s stubClient) GetRunStatus(ctx context.Context, agentID, runID string) (*c
 		return nil, errUnexpectedAPICall
 	}
 	return s.getRunStatus(ctx, agentID, runID)
+}
+
+func (s stubClient) CancelRun(ctx context.Context, agentID, runID string) (*cursor.CancelRunResponse, error) {
+	if s.cancelRun == nil {
+		return nil, errUnexpectedAPICall
+	}
+	return s.cancelRun(ctx, agentID, runID)
+}
+
+func (s stubClient) StreamRun(ctx context.Context, agentID, runID string) (cursor.SSEStream, error) {
+	if s.streamRun == nil {
+		return nil, errUnexpectedAPICall
+	}
+	return s.streamRun(ctx, agentID, runID)
 }
 
 type stubModelReader struct {
@@ -161,4 +178,66 @@ func (s *stubRunReader) bind() func(context.Context, string, string) (*cursor.Ru
 
 func newStubClientWithRunReader(reader *stubRunReader) cursor.Client {
 	return stubClient{getRunStatus: reader.bind()}
+}
+
+type stubCancelWriter struct {
+	agentID  string
+	runID    string
+	response *cursor.CancelRunResponse
+	err      error
+}
+
+func (s *stubCancelWriter) bind() func(context.Context, string, string) (*cursor.CancelRunResponse, error) {
+	return func(_ context.Context, agentID, runID string) (*cursor.CancelRunResponse, error) {
+		s.agentID = agentID
+		s.runID = runID
+		if s.err != nil {
+			return nil, s.err
+		}
+		return s.response, nil
+	}
+}
+
+func newStubClientWithCancelWriter(writer *stubCancelWriter) cursor.Client {
+	return stubClient{cancelRun: writer.bind()}
+}
+
+type stubSSEStream struct {
+	events []cursor.SSEEvent
+	pos    int
+}
+
+func (s *stubSSEStream) Next() (cursor.SSEEvent, error) {
+	if s.pos >= len(s.events) {
+		return cursor.SSEEvent{}, io.EOF
+	}
+	e := s.events[s.pos]
+	s.pos++
+	return e, nil
+}
+
+func (s *stubSSEStream) Close() error {
+	return nil
+}
+
+type stubStreamReader struct {
+	agentID string
+	runID   string
+	stream  *stubSSEStream
+	err     error
+}
+
+func (s *stubStreamReader) bind() func(context.Context, string, string) (cursor.SSEStream, error) {
+	return func(_ context.Context, agentID, runID string) (cursor.SSEStream, error) {
+		s.agentID = agentID
+		s.runID = runID
+		if s.err != nil {
+			return nil, s.err
+		}
+		return s.stream, nil
+	}
+}
+
+func newStubClientWithStreamReader(reader *stubStreamReader) cursor.Client {
+	return stubClient{streamRun: reader.bind()}
 }

@@ -1010,3 +1010,339 @@ func TestRunStatusWatchFlagsBeforeArgs(t *testing.T) {
 		t.Fatalf("runID = %q, want %q", reader.runID, runID)
 	}
 }
+
+func TestRunCancelSuccess(t *testing.T) {
+	t.Parallel()
+
+	agentID := "bc-00000000-0000-0000-0000-000000000001"
+	runID := "run-00000000-0000-0000-0000-000000000001"
+	writer := &stubCancelWriter{
+		response: &cursor.CancelRunResponse{ID: runID},
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &stdout,
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithCancelWriter(writer), nil
+		},
+	}
+
+	if got := root.Run([]string{"cancel", agentID, runID}); got != ExitSuccess {
+		t.Fatalf("Run(cancel) = %d, want %d", got, ExitSuccess)
+	}
+	if !strings.Contains(stdout.String(), runID) {
+		t.Fatalf("stdout = %q, want run id", stdout.String())
+	}
+	if writer.agentID != agentID {
+		t.Fatalf("agentID = %q, want %q", writer.agentID, agentID)
+	}
+	if writer.runID != runID {
+		t.Fatalf("runID = %q, want %q", writer.runID, runID)
+	}
+}
+
+func TestRunCancelAPIError(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithCancelWriter(&stubCancelWriter{
+				err: &cursor.APIError{StatusCode: 409, Body: "run_not_cancellable"},
+			}), nil
+		},
+	}
+
+	if got := root.Run([]string{"cancel", "bc-1", "run-1"}); got != ExitAPI {
+		t.Fatalf("Run(cancel) = %d, want %d", got, ExitAPI)
+	}
+	if !strings.Contains(stderr.String(), "status=409") {
+		t.Fatalf("stderr = %q, want API error message", stderr.String())
+	}
+}
+
+func TestRunCancelHelp(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &stderr}
+
+	if got := root.Run([]string{"cancel", "--help"}); got != ExitSuccess {
+		t.Fatalf("Run(cancel --help) = %d, want %d", got, ExitSuccess)
+	}
+	if !strings.Contains(stderr.String(), "Usage: cursor-agent-cli cancel") {
+		t.Fatalf("stderr = %q, want cancel usage text", stderr.String())
+	}
+}
+
+func TestRunCancelMissingAgentID(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			t.Fatal("client should not be called for missing agent_id")
+			return nil, nil
+		},
+	}
+
+	if got := root.Run([]string{"cancel"}); got != ExitUsage {
+		t.Fatalf("Run(cancel) = %d, want %d", got, ExitUsage)
+	}
+	if !strings.Contains(stderr.String(), "agent_id is required") {
+		t.Fatalf("stderr = %q, want missing agent_id message", stderr.String())
+	}
+}
+
+func TestRunCancelMissingRunID(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			t.Fatal("client should not be called for missing run_id")
+			return nil, nil
+		},
+	}
+
+	if got := root.Run([]string{"cancel", "bc-1"}); got != ExitUsage {
+		t.Fatalf("Run(cancel) = %d, want %d", got, ExitUsage)
+	}
+	if !strings.Contains(stderr.String(), "run_id is required") {
+		t.Fatalf("stderr = %q, want missing run_id message", stderr.String())
+	}
+}
+
+func TestRunCancelMissingAPIKey(t *testing.T) {
+	t.Setenv("CURSOR_CLOUD_AGENT_API_KEY", "")
+
+	var stderr bytes.Buffer
+	root := NewRoot()
+	root.stdout = &bytes.Buffer{}
+	root.stderr = &stderr
+
+	if got := root.Run([]string{"cancel", "bc-1", "run-1"}); got != ExitConfig {
+		t.Fatalf("Run(cancel) = %d, want %d", got, ExitConfig)
+	}
+	if !strings.Contains(stderr.String(), "CURSOR_CLOUD_AGENT_API_KEY") {
+		t.Fatalf("stderr = %q, want missing API key message", stderr.String())
+	}
+}
+
+func TestRunStreamSuccess(t *testing.T) {
+	t.Parallel()
+
+	agentID := "bc-00000000-0000-0000-0000-000000000001"
+	runID := "run-00000000-0000-0000-0000-000000000001"
+	reader := &stubStreamReader{
+		stream: &stubSSEStream{
+			events: []cursor.SSEEvent{
+				{Event: "status", Data: `{"runId":"run-1","status":"RUNNING"}`},
+				{Event: "assistant", Data: `{"text":"hello"}`, ID: "1713033006000-0"},
+				{Event: "done", Data: `{}`},
+			},
+		},
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &stdout,
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithStreamReader(reader), nil
+		},
+	}
+
+	if got := root.Run([]string{"stream", agentID, runID}); got != ExitSuccess {
+		t.Fatalf("Run(stream) = %d, want %d", got, ExitSuccess)
+	}
+	if reader.agentID != agentID {
+		t.Fatalf("agentID = %q, want %q", reader.agentID, agentID)
+	}
+	if reader.runID != runID {
+		t.Fatalf("runID = %q, want %q", reader.runID, runID)
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("got %d lines, want 3: %q", len(lines), stdout.String())
+	}
+
+	var first map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatalf("json.Unmarshal line 0: %v", err)
+	}
+	if first["event"] != "status" {
+		t.Fatalf("line 0 event = %v, want status", first["event"])
+	}
+}
+
+func TestRunStreamErrorEvent(t *testing.T) {
+	t.Parallel()
+
+	reader := &stubStreamReader{
+		stream: &stubSSEStream{
+			events: []cursor.SSEEvent{
+				{Event: "error", Data: `{"code":"run_not_found","message":"not found"}`},
+			},
+		},
+	}
+	var stdout bytes.Buffer
+	root := &Root{
+		stdout: &stdout,
+		stderr: &bytes.Buffer{},
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithStreamReader(reader), nil
+		},
+	}
+
+	if got := root.Run([]string{"stream", "bc-1", "run-1"}); got != ExitAPI {
+		t.Fatalf("Run(stream error) = %d, want %d", got, ExitAPI)
+	}
+}
+
+func TestRunStreamUnexpectedEOF(t *testing.T) {
+	t.Parallel()
+
+	reader := &stubStreamReader{
+		stream: &stubSSEStream{
+			events: []cursor.SSEEvent{
+				{Event: "status", Data: `{"runId":"run-1","status":"RUNNING"}`},
+				{Event: "assistant", Data: `{"text":"hello"}`},
+			},
+		},
+	}
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithStreamReader(reader), nil
+		},
+	}
+
+	if got := root.Run([]string{"stream", "bc-1", "run-1"}); got != ExitAPI {
+		t.Fatalf("Run(stream unexpected EOF) = %d, want %d", got, ExitAPI)
+	}
+	if !strings.Contains(stderr.String(), "stream ended unexpectedly") {
+		t.Fatalf("stderr = %q, want unexpected EOF message", stderr.String())
+	}
+}
+
+func TestRunStreamConnectionError(t *testing.T) {
+	t.Parallel()
+
+	reader := &stubStreamReader{
+		err: &cursor.APIError{StatusCode: 404, Body: "not found"},
+	}
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			return newStubClientWithStreamReader(reader), nil
+		},
+	}
+
+	if got := root.Run([]string{"stream", "bc-1", "run-1"}); got != ExitAPI {
+		t.Fatalf("Run(stream conn error) = %d, want %d", got, ExitAPI)
+	}
+	if !strings.Contains(stderr.String(), "stream connection failed") {
+		t.Fatalf("stderr = %q, want connection error message", stderr.String())
+	}
+}
+
+func TestRunStreamHelp(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &stderr}
+
+	if got := root.Run([]string{"stream", "--help"}); got != ExitSuccess {
+		t.Fatalf("Run(stream --help) = %d, want %d", got, ExitSuccess)
+	}
+	if !strings.Contains(stderr.String(), "Usage: cursor-agent-cli stream") {
+		t.Fatalf("stderr = %q, want stream usage text", stderr.String())
+	}
+}
+
+func TestRunStreamMissingAgentID(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			t.Fatal("client should not be called for missing agent_id")
+			return nil, nil
+		},
+	}
+
+	if got := root.Run([]string{"stream"}); got != ExitUsage {
+		t.Fatalf("Run(stream) = %d, want %d", got, ExitUsage)
+	}
+	if !strings.Contains(stderr.String(), "agent_id is required") {
+		t.Fatalf("stderr = %q, want missing agent_id message", stderr.String())
+	}
+}
+
+func TestRunStreamMissingRunID(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{
+		stdout: &bytes.Buffer{},
+		stderr: &stderr,
+		clientFactory: func() (cursor.Client, error) {
+			t.Fatal("client should not be called for missing run_id")
+			return nil, nil
+		},
+	}
+
+	if got := root.Run([]string{"stream", "bc-1"}); got != ExitUsage {
+		t.Fatalf("Run(stream) = %d, want %d", got, ExitUsage)
+	}
+	if !strings.Contains(stderr.String(), "run_id is required") {
+		t.Fatalf("stderr = %q, want missing run_id message", stderr.String())
+	}
+}
+
+func TestRunStreamMissingAPIKey(t *testing.T) {
+	t.Setenv("CURSOR_CLOUD_AGENT_API_KEY", "")
+
+	var stderr bytes.Buffer
+	root := NewRoot()
+	root.stdout = &bytes.Buffer{}
+	root.stderr = &stderr
+
+	if got := root.Run([]string{"stream", "bc-1", "run-1"}); got != ExitConfig {
+		t.Fatalf("Run(stream) = %d, want %d", got, ExitConfig)
+	}
+	if !strings.Contains(stderr.String(), "CURSOR_CLOUD_AGENT_API_KEY") {
+		t.Fatalf("stderr = %q, want missing API key message", stderr.String())
+	}
+}
+
+func TestRunHelpIncludesNewCommands(t *testing.T) {
+	t.Parallel()
+
+	var stderr bytes.Buffer
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &stderr}
+
+	root.Run([]string{"help"})
+	if !strings.Contains(stderr.String(), "stream") {
+		t.Fatalf("stderr = %q, want 'stream' in help output", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "cancel") {
+		t.Fatalf("stderr = %q, want 'cancel' in help output", stderr.String())
+	}
+}

@@ -65,6 +65,8 @@ go build .
 | `create` | API レスポンスをそのまま JSON 出力 |
 | `run` | API レスポンスをそのまま JSON 出力 |
 | `status` | API レスポンス + `_cli` メタ情報（エージェント向け） |
+| `stream` | SSE イベントを NDJSON（1行1JSON）で出力 |
+| `cancel` | API レスポンスをそのまま JSON 出力 |
 
 `status` サブコマンドのみ、他のエージェントがプログラム的に扱いやすいよう CLI 独自の `_cli` フィールドを付与します。`status` / `status --watch` は常に stdout に 1 つの JSON を出力します（`status --help` を除く。ヘルプは stderr に usage を出力し、JSON は出力しません）。
 
@@ -160,6 +162,58 @@ API エラー（API レスポンスを取得できないため、`id` / `agentId
   }
 }
 ```
+
+### `stream` — SSE ストリーミング
+
+`GET /v1/agents/{id}/runs/{run_id}/stream` に接続し、Server-Sent Events をリアルタイムで NDJSON 出力します。
+
+```bash
+./cursor-agent-cli stream <agent_id> <run_id>
+```
+
+ポーリング（`status --watch`）では `status` しか分からないのに対し、`stream` では以下のイベントがリアルタイムで流れます:
+
+| イベント | 内容 |
+|---|---|
+| `status` | ステータス変更（`RUNNING` → `FINISHED` 等） |
+| `assistant` | アシスタントのテキストデルタ（トークン単位） |
+| `thinking` | 思考プロセスのテキストデルタ |
+| `tool_call` | ツール呼び出し（`name`, `status`, `args`, `result`） |
+| `result` | 最終結果（`text`, `durationMs`, `git`） |
+| `interaction_update` | ステップ進捗、トークン消費、思考完了等の詳細イベント |
+| `heartbeat` | キープアライブ |
+| `error` | エラー |
+| `done` | ストリーム終了 |
+
+出力例:
+
+```jsonl
+{"event":"status","data":{"runId":"run-1","status":"RUNNING"}}
+{"event":"assistant","data":{"text":"Checking"},"id":"1713033006000-0"}
+{"event":"tool_call","data":{"callId":"tc-1","name":"read_file","status":"started"},"id":"1713033007000-0"}
+{"event":"result","data":{"runId":"run-1","status":"FINISHED","text":"Done.","durationMs":12357}}
+{"event":"done","data":{}}
+```
+
+終了コード: `done` イベント受信時は 0、`error` イベント受信時は 2。
+
+### `cancel` — 実行のキャンセル
+
+`POST /v1/agents/{id}/runs/{run_id}/cancel` で実行中のランをキャンセルします。
+
+```bash
+./cursor-agent-cli cancel <agent_id> <run_id>
+```
+
+出力例:
+
+```json
+{
+  "id": "run-00000000-0000-0000-0000-000000000001"
+}
+```
+
+キャンセルは不可逆です。会話を継続する場合は `run` で新しい実行を開始してください。既に終了した実行のキャンセルは `409` エラーになります。
 
 ## ライセンス
 

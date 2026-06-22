@@ -678,3 +678,157 @@ func TestGetRunStatusAPIError(t *testing.T) {
 		t.Fatalf("status = %d, want 404", apiErr.StatusCode)
 	}
 }
+
+func TestCancelRunSuccess(t *testing.T) {
+	t.Parallel()
+
+	agentID := "bc-00000000-0000-0000-0000-000000000001"
+	runID := "run-00000000-0000-0000-0000-000000000001"
+	want := CancelRunResponse{ID: runID}
+	body, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/agents/"+agentID+"/runs/"+runID+"/cancel" {
+			t.Errorf("path = %q, want /agents/%s/runs/%s/cancel", r.URL.Path, agentID, runID)
+		}
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %q, want POST", r.Method)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "test-api-key",
+		AgentsURL: server.URL + "/agents",
+	})
+
+	got, err := client.CancelRun(context.Background(), agentID, runID)
+	if err != nil {
+		t.Fatalf("CancelRun() error = %v", err)
+	}
+	if got.ID != want.ID {
+		t.Fatalf("CancelRun() = %+v, want %+v", got, want)
+	}
+
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("test-api-key:"))
+	if gotAuth != wantAuth {
+		t.Fatalf("Authorization = %q, want %q", gotAuth, wantAuth)
+	}
+}
+
+func TestCancelRunAPIError(t *testing.T) {
+	t.Parallel()
+
+	agentID := "bc-00000000-0000-0000-0000-000000000001"
+	runID := "run-00000000-0000-0000-0000-000000000001"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"run_not_cancellable"}`, http.StatusConflict)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "test-api-key",
+		AgentsURL: server.URL + "/agents",
+	})
+
+	_, err := client.CancelRun(context.Background(), agentID, runID)
+	if err == nil {
+		t.Fatal("CancelRun() error = nil, want API error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %T, want *APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", apiErr.StatusCode)
+	}
+}
+
+func TestStreamRunSuccess(t *testing.T) {
+	t.Parallel()
+
+	agentID := "bc-00000000-0000-0000-0000-000000000001"
+	runID := "run-00000000-0000-0000-0000-000000000001"
+
+	ssePayload := "event: status\ndata: {\"runId\":\"run-1\",\"status\":\"RUNNING\"}\n\nevent: done\ndata: {}\n\n"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/agents/"+agentID+"/runs/"+runID+"/stream" {
+			t.Errorf("path = %q, want /agents/%s/runs/%s/stream", r.URL.Path, agentID, runID)
+		}
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %q, want GET", r.Method)
+		}
+		if r.Header.Get("Accept") != "text/event-stream" {
+			t.Errorf("Accept = %q, want text/event-stream", r.Header.Get("Accept"))
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(ssePayload))
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "test-api-key",
+		AgentsURL: server.URL + "/agents",
+	})
+
+	stream, err := client.StreamRun(context.Background(), agentID, runID)
+	if err != nil {
+		t.Fatalf("StreamRun() error = %v", err)
+	}
+	defer stream.Close()
+
+	evt1, err := stream.Next()
+	if err != nil {
+		t.Fatalf("Next() error = %v", err)
+	}
+	if evt1.Event != "status" {
+		t.Fatalf("event = %q, want status", evt1.Event)
+	}
+
+	evt2, err := stream.Next()
+	if err != nil {
+		t.Fatalf("Next() error = %v", err)
+	}
+	if evt2.Event != "done" {
+		t.Fatalf("event = %q, want done", evt2.Event)
+	}
+
+	_, err = stream.Next()
+	if err != io.EOF {
+		t.Fatalf("Next() error = %v, want io.EOF", err)
+	}
+}
+
+func TestStreamRunAPIError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		APIKey:    "test-api-key",
+		AgentsURL: server.URL + "/agents",
+	})
+
+	_, err := client.StreamRun(context.Background(), "bc-1", "run-1")
+	if err == nil {
+		t.Fatal("StreamRun() error = nil, want API error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %T, want *APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", apiErr.StatusCode)
+	}
+}
