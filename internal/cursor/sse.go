@@ -25,15 +25,38 @@ func (s *sseStreamReader) Next() (SSEEvent, error) {
 	}
 
 	var event SSEEvent
+	hasFields := false
 	hasData := false
 
 	for {
 		line, err := s.reader.ReadString('\n')
 		line = strings.TrimRight(line, "\r\n")
 
+		if line != "" && !strings.HasPrefix(line, ":") {
+			field, value, _ := strings.Cut(line, ":")
+			value = strings.TrimPrefix(value, " ")
+
+			switch field {
+			case "event":
+				event.Event = value
+				hasFields = true
+			case "data":
+				if hasData {
+					event.Data += "\n" + value
+				} else {
+					event.Data = value
+					hasData = true
+				}
+				hasFields = true
+			case "id":
+				event.ID = value
+				hasFields = true
+			}
+		}
+
 		if err != nil {
 			if err == io.EOF {
-				if hasData {
+				if hasFields {
 					return event, nil
 				}
 				s.closed = true
@@ -43,31 +66,10 @@ func (s *sseStreamReader) Next() (SSEEvent, error) {
 		}
 
 		if line == "" {
-			if hasData {
+			if hasFields {
 				return event, nil
 			}
 			continue
-		}
-
-		if strings.HasPrefix(line, ":") {
-			continue
-		}
-
-		field, value, _ := strings.Cut(line, ":")
-		value = strings.TrimPrefix(value, " ")
-
-		switch field {
-		case "event":
-			event.Event = value
-		case "data":
-			if hasData {
-				event.Data += "\n" + value
-			} else {
-				event.Data = value
-				hasData = true
-			}
-		case "id":
-			event.ID = value
 		}
 	}
 }
