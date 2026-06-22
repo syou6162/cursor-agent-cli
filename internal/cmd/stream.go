@@ -59,12 +59,13 @@ func streamRun(ctx context.Context, client cursor.Client, agentID, runID string,
 			return ExitError
 		}
 
-		if evt.Event == "done" || evt.Event == "error" {
-			sawTerminal = true
-			if evt.Event == "error" {
-				return ExitAPI
-			}
+		switch evt.Event {
+		case "done":
 			return ExitSuccess
+		case "error":
+			return ExitAPI
+		case "result":
+			sawTerminal = true
 		}
 	}
 }
