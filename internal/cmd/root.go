@@ -126,9 +126,9 @@ func (r *Root) runCreate(args []string) int {
 	prompt := fs.String("prompt", "", "task prompt for the agent (required)")
 	branch := fs.String("branch", "main", "branch name or commit SHA to use as the starting point")
 	fs.Usage = func() {
-		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli create [flags]")
-		fmt.Fprintln(r.stderr)
-		fmt.Fprintln(r.stderr, "Flags:")
+		_, _ = fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli create [flags]")
+		_, _ = fmt.Fprintln(r.stderr)
+		_, _ = fmt.Fprintln(r.stderr, "Flags:")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -174,9 +174,9 @@ func (r *Root) runRun(args []string) int {
 	fs.SetOutput(r.stderr)
 	prompt := fs.String("prompt", "", "modification instruction text (required)")
 	fs.Usage = func() {
-		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli run <agent_id> [flags]")
-		fmt.Fprintln(r.stderr)
-		fmt.Fprintln(r.stderr, "Flags:")
+		_, _ = fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli run <agent_id> [flags]")
+		_, _ = fmt.Fprintln(r.stderr)
+		_, _ = fmt.Fprintln(r.stderr, "Flags:")
 		fs.PrintDefaults()
 	}
 
@@ -227,9 +227,9 @@ func (r *Root) runStatus(args []string) int {
 	interval := fs.Int("interval", 15, "polling interval in seconds")
 	timeout := fs.Int("timeout", 0, "maximum wait time in seconds (0 = no limit)")
 	fs.Usage = func() {
-		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli status <agent_id> <run_id> [flags]")
-		fmt.Fprintln(r.stderr)
-		fmt.Fprintln(r.stderr, "Flags:")
+		_, _ = fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli status <agent_id> <run_id> [flags]")
+		_, _ = fmt.Fprintln(r.stderr)
+		_, _ = fmt.Fprintln(r.stderr, "Flags:")
 		fs.PrintDefaults()
 	}
 
@@ -297,7 +297,7 @@ func (r *Root) runStatus(args []string) int {
 }
 
 func (r *Root) fail(code int, err error) int {
-	fmt.Fprintf(r.stderr, "error: %v\n", err)
+	_, _ = fmt.Fprintf(r.stderr, "error: %v\n", err)
 	return code
 }
 
@@ -311,22 +311,22 @@ func (r *Root) runHelp(_ []string) int {
 	fs := flag.NewFlagSet("cursor-agent-cli", flag.ContinueOnError)
 	fs.SetOutput(r.stderr)
 	fs.Usage = func() {
-		fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli [command]")
-		fmt.Fprintln(r.stderr)
-		fmt.Fprintln(r.stderr, "Commands:")
-		fmt.Fprintln(r.stderr, "  help     Show usage information")
-		fmt.Fprintln(r.stderr, "  models   List available models")
-		fmt.Fprintln(r.stderr, "  list     List agents")
-		fmt.Fprintln(r.stderr, "  create   Create a Cloud Agent")
-		fmt.Fprintln(r.stderr, "  run      Start a new run on an existing agent")
-		fmt.Fprintln(r.stderr, "  status   Get the status of an agent run")
+		_, _ = fmt.Fprintln(r.stderr, "Usage: cursor-agent-cli [command]")
+		_, _ = fmt.Fprintln(r.stderr)
+		_, _ = fmt.Fprintln(r.stderr, "Commands:")
+		_, _ = fmt.Fprintln(r.stderr, "  help     Show usage information")
+		_, _ = fmt.Fprintln(r.stderr, "  models   List available models")
+		_, _ = fmt.Fprintln(r.stderr, "  list     List agents")
+		_, _ = fmt.Fprintln(r.stderr, "  create   Create a Cloud Agent")
+		_, _ = fmt.Fprintln(r.stderr, "  run      Start a new run on an existing agent")
+		_, _ = fmt.Fprintln(r.stderr, "  status   Get the status of an agent run")
 	}
 	fs.Usage()
 	return ExitSuccess
 }
 
 func (r *Root) runUnknown(name string) int {
-	fmt.Fprintf(r.stderr, "unknown command: %s\n", name)
+	_, _ = fmt.Fprintf(r.stderr, "unknown command: %s\n", name)
 	return ExitUsage
 }
 
@@ -334,7 +334,7 @@ func (r *Root) writeJSON(v any) int {
 	enc := json.NewEncoder(r.stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(v); err != nil {
-		fmt.Fprintf(r.stderr, "error: %v\n", err)
+		_, _ = fmt.Fprintf(r.stderr, "error: %v\n", err)
 		return ExitError
 	}
 	return ExitSuccess
@@ -343,12 +343,12 @@ func (r *Root) writeJSON(v any) int {
 func (r *Root) writeStatusResponse(resp StatusResponse) int {
 	code := resp.CLI.ExitCode
 	if resp.CLI.Error != nil {
-		fmt.Fprintf(r.stderr, "error: %s\n", *resp.CLI.Error)
+		_, _ = fmt.Fprintf(r.stderr, "error: %s\n", *resp.CLI.Error)
 	}
 	enc := json.NewEncoder(r.stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(resp); err != nil {
-		fmt.Fprintf(r.stderr, "error: %v\n", err)
+		_, _ = fmt.Fprintf(r.stderr, "error: %v\n", err)
 		return ExitError
 	}
 	return code
