@@ -180,6 +180,7 @@ API エラー（API レスポンスを取得できないため、`id` / `agentId
 | `thinking` | 思考プロセスのテキストデルタ |
 | `tool_call` | ツール呼び出し（`name`, `status`, `args`, `result`） |
 | `result` | 最終結果（`text`, `durationMs`, `git`） |
+| `interaction_update` | ステップ進捗、トークン消費、思考完了等の詳細イベント |
 | `heartbeat` | キープアライブ |
 | `error` | エラー |
 | `done` | ストリーム終了 |
