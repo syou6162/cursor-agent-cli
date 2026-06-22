@@ -320,8 +320,9 @@ func (c *apiClient) StreamRun(ctx context.Context, agentID, runID string) (SSESt
 	req.Header.Set("Accept", "text/event-stream")
 	req.SetBasicAuth(c.apiKey(), "")
 
-	// SSE streams are long-lived; use a client without a response timeout.
-	streamClient := &http.Client{}
+	// SSE streams are long-lived; clone the configured client with timeout disabled.
+	streamClient := *c.httpClient
+	streamClient.Timeout = 0
 	resp, err := streamClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("Cursor API request failed: %w", err)
