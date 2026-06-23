@@ -55,10 +55,10 @@ func (r *Root) apiClient() (cursor.Client, error) {
 	return cursor.ClientFromEnv()
 }
 
-// Run dispatches to a subcommand or prints the default hello-world response.
+// Run dispatches to a subcommand or prints usage when no command is given.
 func (r *Root) Run(args []string) int {
 	if len(args) == 0 {
-		return r.runHello()
+		return r.runHelp(nil)
 	}
 
 	switch args[0] {
@@ -321,12 +321,6 @@ func (r *Root) runStatus(args []string) int {
 func (r *Root) fail(code int, err error) int {
 	fmt.Fprintf(r.stderr, "error: %v\n", err)
 	return code
-}
-
-func (r *Root) runHello() int {
-	return r.writeJSON(map[string]string{
-		"message": "hello from cursor-agent-cli",
-	})
 }
 
 func (r *Root) runStream(args []string) int {
