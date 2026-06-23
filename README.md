@@ -26,21 +26,10 @@ go build -o cursor-agent-cli .
 
 ## 実行
 
-引数なしで実行すると hello world 的な JSON レスポンスを返します。
+引数なし、または `help` を指定すると使い方を表示します。
 
 ```bash
 ./cursor-agent-cli
-```
-
-```json
-{
-  "message": "hello from cursor-agent-cli"
-}
-```
-
-ヘルプを表示する:
-
-```bash
 ./cursor-agent-cli help
 ```
 

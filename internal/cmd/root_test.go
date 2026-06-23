@@ -32,18 +32,18 @@ func parseStatusCLI(t *testing.T, stdout string) map[string]any {
 	return cli
 }
 
-func TestRunDefaultHelloWorld(t *testing.T) {
+func TestRunDefaultShowsUsage(t *testing.T) {
 	t.Parallel()
 
-	var stdout bytes.Buffer
-	root := &Root{stdout: &stdout, stderr: &bytes.Buffer{}}
+	var stderr bytes.Buffer
+	root := &Root{stdout: &bytes.Buffer{}, stderr: &stderr}
 
 	if got := root.Run(nil); got != ExitSuccess {
 		t.Fatalf("Run(nil) = %d, want %d", got, ExitSuccess)
 	}
 
-	if !strings.Contains(stdout.String(), "hello from cursor-agent-cli") {
-		t.Fatalf("stdout = %q, want hello message", stdout.String())
+	if !strings.Contains(stderr.String(), "Usage: cursor-agent-cli") {
+		t.Fatalf("stderr = %q, want usage text", stderr.String())
 	}
 }
 
